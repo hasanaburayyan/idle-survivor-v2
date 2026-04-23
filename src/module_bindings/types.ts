@@ -18,16 +18,80 @@ export const Account = __t.object("Account", {
 });
 export type Account = __Infer<typeof Account>;
 
+export const Group = __t.object("Group", {
+  groupId: __t.u64(),
+  ownerUsername: __t.string(),
+  createdAt: __t.timestamp(),
+});
+export type Group = __Infer<typeof Group>;
+
+export const GroupContributionEvent = __t.object("GroupContributionEvent", {
+  eventId: __t.u64(),
+  groupId: __t.u64(),
+  contributor: __t.string(),
+  recipient: __t.string(),
+  amount: __t.u64(),
+  createdAt: __t.timestamp(),
+});
+export type GroupContributionEvent = __Infer<typeof GroupContributionEvent>;
+
+export const GroupInvitation = __t.object("GroupInvitation", {
+  invitationId: __t.u64(),
+  groupId: __t.u64(),
+  fromUsername: __t.string(),
+  toUsername: __t.string(),
+  createdAt: __t.timestamp(),
+});
+export type GroupInvitation = __Infer<typeof GroupInvitation>;
+
+export const GroupMember = __t.object("GroupMember", {
+  username: __t.string(),
+  groupId: __t.u64(),
+  joinedAt: __t.timestamp(),
+});
+export type GroupMember = __Infer<typeof GroupMember>;
+
+export const MyGroup = __t.object("MyGroup", {});
+export type MyGroup = __Infer<typeof MyGroup>;
+
+export const MyGroupContributions = __t.object("MyGroupContributions", {});
+export type MyGroupContributions = __Infer<typeof MyGroupContributions>;
+
+export const MyGroupMemberStates = __t.object("MyGroupMemberStates", {});
+export type MyGroupMemberStates = __Infer<typeof MyGroupMemberStates>;
+
+export const MyGroupMembers = __t.object("MyGroupMembers", {});
+export type MyGroupMembers = __Infer<typeof MyGroupMembers>;
+
+export const MyGroupMembership = __t.object("MyGroupMembership", {});
+export type MyGroupMembership = __Infer<typeof MyGroupMembership>;
+
+export const MyInvitations = __t.object("MyInvitations", {});
+export type MyInvitations = __Infer<typeof MyInvitations>;
+
 export const MyPlayerState = __t.object("MyPlayerState", {});
 export type MyPlayerState = __Infer<typeof MyPlayerState>;
 
 export const MySession = __t.object("MySession", {});
 export type MySession = __Infer<typeof MySession>;
 
+export const MySkills = __t.object("MySkills", {});
+export type MySkills = __Infer<typeof MySkills>;
+
+export const PlayerSkill = __t.object("PlayerSkill", {
+  id: __t.u64(),
+  username: __t.string(),
+  skillId: __t.string(),
+  level: __t.u32(),
+});
+export type PlayerSkill = __Infer<typeof PlayerSkill>;
+
 export const PlayerState = __t.object("PlayerState", {
   username: __t.string(),
   scrap: __t.u64(),
-  scavengeLevel: __t.u32(),
+  xp: __t.u64(),
+  playerLevel: __t.u32(),
+  skillPoints: __t.u32(),
   updatedAt: __t.timestamp(),
 });
 export type PlayerState = __Infer<typeof PlayerState>;
@@ -38,6 +102,19 @@ export const Session = __t.object("Session", {
   createdAt: __t.timestamp(),
 });
 export type Session = __Infer<typeof Session>;
+
+export const SkillDefinition = __t.object("SkillDefinition", {
+  skillId: __t.string(),
+  name: __t.string(),
+  description: __t.string(),
+  maxLevel: __t.u32(),
+  prerequisiteSkillId: __t.string(),
+  prerequisiteLevel: __t.u32(),
+  positionX: __t.i32(),
+  positionY: __t.i32(),
+  sortOrder: __t.u32(),
+});
+export type SkillDefinition = __Infer<typeof SkillDefinition>;
 
 export const UsernameDirectory = __t.object("UsernameDirectory", {
   username: __t.string(),

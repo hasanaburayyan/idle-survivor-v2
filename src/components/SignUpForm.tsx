@@ -1,4 +1,5 @@
-import { FormEvent, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
+import { Pressable, Text, TextInput, View } from 'react-native';
 import { reducers, tables } from '../module_bindings';
 import { useReducer, useTable } from 'spacetimedb/react';
 import { useAuthUiStore } from '../store/authUiStore';
@@ -38,14 +39,26 @@ export default function SignUpForm() {
   const usernameIsTaken =
     normalized.length >= MIN_USERNAME_LENGTH && taken.has(normalized);
 
-  let usernameHint: string | null = null;
+  let usernameHint: { text: string; ok: boolean } | null = null;
   if (usernameTooShort)
-    usernameHint = `At least ${MIN_USERNAME_LENGTH} characters`;
+    usernameHint = {
+      text: `At least ${MIN_USERNAME_LENGTH} characters`,
+      ok: false,
+    };
   else if (usernameTooLong)
-    usernameHint = `At most ${MAX_USERNAME_LENGTH} characters`;
+    usernameHint = {
+      text: `At most ${MAX_USERNAME_LENGTH} characters`,
+      ok: false,
+    };
   else if (usernameInvalidChars)
-    usernameHint = 'Only lowercase letters, numbers, and underscores';
-  else if (usernameIsTaken) usernameHint = 'Username already taken';
+    usernameHint = {
+      text: 'Only lowercase letters, numbers, and underscores',
+      ok: false,
+    };
+  else if (usernameIsTaken)
+    usernameHint = { text: 'Username already taken', ok: false };
+  else if (normalized.length >= MIN_USERNAME_LENGTH)
+    usernameHint = { text: 'Username is available', ok: true };
 
   const passwordTooShort =
     password.length > 0 && password.length < MIN_PASSWORD_LENGTH;
@@ -61,8 +74,7 @@ export default function SignUpForm() {
     password.length >= MIN_PASSWORD_LENGTH &&
     !submitting;
 
-  const onSubmit = async (e: FormEvent) => {
-    e.preventDefault();
+  const onSubmit = async () => {
     if (!canSubmit) return;
     clearAuthError();
     setSubmitting(true);
@@ -77,54 +89,66 @@ export default function SignUpForm() {
   };
 
   return (
-    <form onSubmit={onSubmit} className="space-y-4">
-      <label className="block">
-        <span className="block text-xs font-medium text-slate-300 mb-1">
+    <View className="gap-4">
+      <View>
+        <Text className="text-xs font-medium text-slate-300 mb-1">
           Username
-        </span>
-        <input
-          type="text"
-          autoComplete="username"
+        </Text>
+        <TextInput
           value={username}
-          onChange={e => setUsername(e.target.value)}
-          className="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-          required
+          onChangeText={setUsername}
+          autoCapitalize="none"
+          autoCorrect={false}
+          textContentType="username"
+          className="rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-sm text-slate-100"
+          placeholderTextColor="#64748b"
         />
-        {usernameHint && (
-          <p className="mt-1 text-xs text-rose-400">{usernameHint}</p>
-        )}
-        {!usernameHint && normalized.length >= MIN_USERNAME_LENGTH && (
-          <p className="mt-1 text-xs text-emerald-400">Username is available</p>
-        )}
-      </label>
-      <label className="block">
-        <span className="block text-xs font-medium text-slate-300 mb-1">
+        {usernameHint ? (
+          <Text
+            className={`mt-1 text-xs ${
+              usernameHint.ok ? 'text-emerald-400' : 'text-rose-400'
+            }`}
+          >
+            {usernameHint.text}
+          </Text>
+        ) : null}
+      </View>
+      <View>
+        <Text className="text-xs font-medium text-slate-300 mb-1">
           Password
-        </span>
-        <input
-          type="password"
-          autoComplete="new-password"
+        </Text>
+        <TextInput
           value={password}
-          onChange={e => setPassword(e.target.value)}
-          className="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-          required
+          onChangeText={setPassword}
+          secureTextEntry
+          autoCapitalize="none"
+          autoCorrect={false}
+          textContentType="newPassword"
+          className="rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-sm text-slate-100"
+          placeholderTextColor="#64748b"
         />
-        {passwordHint && (
-          <p className="mt-1 text-xs text-rose-400">{passwordHint}</p>
-        )}
-      </label>
-      {lastAuthError && (
-        <p className="text-sm text-rose-400" role="alert">
-          {lastAuthError}
-        </p>
-      )}
-      <button
-        type="submit"
+        {passwordHint ? (
+          <Text className="mt-1 text-xs text-rose-400">{passwordHint}</Text>
+        ) : null}
+      </View>
+      {lastAuthError ? (
+        <Text className="text-sm text-rose-400">{lastAuthError}</Text>
+      ) : null}
+      <Pressable
+        onPress={onSubmit}
         disabled={!canSubmit}
-        className="w-full rounded-lg bg-emerald-500 hover:bg-emerald-400 disabled:bg-emerald-700 disabled:cursor-not-allowed py-2 text-sm font-medium text-slate-950 transition"
+        className={`rounded-lg py-3 items-center ${
+          canSubmit ? 'bg-emerald-500' : 'bg-slate-800'
+        }`}
       >
-        {submitting ? 'Creating account…' : 'Create account'}
-      </button>
-    </form>
+        <Text
+          className={`text-sm font-medium ${
+            canSubmit ? 'text-slate-950' : 'text-slate-500'
+          }`}
+        >
+          {submitting ? 'Creating account…' : 'Create account'}
+        </Text>
+      </Pressable>
+    </View>
   );
 }

@@ -7,10 +7,9 @@
 #   cd ../bootstrap && terraform output -raw state_bucket_name
 terraform {
   backend "s3" {
-    bucket         = "r2ts-tf-state-<account-id>"
-    key            = "main/terraform.tfstate"
+    bucket         = "hasan-tf-bucket"
+    key            = "main/idle-survivor/terraform.tfstate"
     region         = "us-east-1"
-    dynamodb_table = "r2ts-tf-lock"
     encrypt        = true
   }
 }

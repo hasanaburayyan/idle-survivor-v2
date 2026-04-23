@@ -2,29 +2,37 @@
   "name": "idle-survivor",
   "private": true,
   "version": "0.0.1",
-  "type": "module",
+  "main": "index.ts",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && vite build",
-    "preview": "vite preview",
-    "generate": "cargo run -p gen-bindings -- --out-dir src/module_bindings --module-path spacetimedb && prettier --write src/module_bindings",
+    "start": "expo start",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "web": "expo start --web",
+    "build:web": "expo export --platform web",
     "spacetime:generate": "spacetime generate --lang typescript --out-dir src/module_bindings --module-path spacetimedb",
-    "spacetime:publish:local": "spacetime publish --module-path server --server local",
-    "spacetime:publish": "spacetime publish --module-path server --server maincloud"
+    "spacetime:publish:local": "spacetime publish --module-path spacetimedb --server local idle-survivor",
+    "spacetime:publish": "spacetime publish --module-path spacetimedb --server maincloud idle-survivor"
   },
   "dependencies": {
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
+    "@expo/metro-runtime": "~4.0.1",
+    "@react-native-async-storage/async-storage": "1.23.1",
+    "expo": "~52.0.0",
+    "expo-status-bar": "~2.0.1",
+    "nativewind": "^4.1.23",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "react-native": "0.76.5",
+    "react-native-reanimated": "~3.16.1",
+    "react-native-safe-area-context": "4.12.0",
+    "react-native-screens": "~4.4.0",
+    "react-native-svg": "15.8.0",
+    "react-native-web": "~0.19.13",
     "spacetimedb": "^2.1.0",
+    "tailwindcss": "^3.4.19",
     "zustand": "^5.0.12"
   },
   "devDependencies": {
-    "@tailwindcss/vite": "^4.2.4",
-    "@types/react": "^18.3.18",
-    "@types/react-dom": "^18.3.5",
-    "@vitejs/plugin-react": "^5.0.2",
-    "tailwindcss": "^4.2.4",
-    "typescript": "~5.6.2",
-    "vite": "^7.1.5"
+    "@types/react": "~18.3.12",
+    "typescript": "~5.6.2"
   }
 }

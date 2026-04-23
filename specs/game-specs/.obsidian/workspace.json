@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "The First Game Loop.md",
+                "file": "Skill Tree.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "The First Game Loop"
+              "title": "Skill Tree"
             }
           }
         ]
@@ -94,7 +94,7 @@
             "state": {
               "type": "backlink",
               "state": {
-                "file": "The First Game Loop.md",
+                "file": "Skill Tree.md",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -104,7 +104,7 @@
                 "unlinkedCollapsed": true
               },
               "icon": "links-coming-in",
-              "title": "Backlinks for The First Game Loop"
+              "title": "Backlinks for Skill Tree"
             }
           },
           {
@@ -113,12 +113,12 @@
             "state": {
               "type": "outgoing-link",
               "state": {
-                "file": "The First Game Loop.md",
+                "file": "Skill Tree.md",
                 "linksCollapsed": false,
                 "unlinkedCollapsed": true
               },
               "icon": "links-going-out",
-              "title": "Outgoing links from The First Game Loop"
+              "title": "Outgoing links from Skill Tree"
             }
           },
           {
@@ -156,13 +156,13 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "The First Game Loop.md",
+                "file": "Skill Tree.md",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
               },
               "icon": "lucide-list",
-              "title": "Outline of The First Game Loop"
+              "title": "Outline of Skill Tree"
             }
           }
         ]
@@ -185,10 +185,11 @@
   },
   "active": "027262e93fc4a081",
   "lastOpenFiles": [
-    "The Wastes.md",
-    "The First Game Loop.md",
     "Multiplayer Sessions.md",
+    "Skill Tree.md",
+    "The First Game Loop.md",
     "Social Systems.md",
+    "The Wastes.md",
     "Shelter.md",
     "User Interface.md",
     "Create Account.md",

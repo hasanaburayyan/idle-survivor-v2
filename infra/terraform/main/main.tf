@@ -216,9 +216,10 @@ resource "aws_route53_record" "site" {
     "www_aaaa"  = { name = local.www_domain, type = "AAAA" }
   }
 
-  zone_id = data.aws_route53_zone.main.zone_id
-  name    = each.value.name
-  type    = each.value.type
+  zone_id         = data.aws_route53_zone.main.zone_id
+  name            = each.value.name
+  type            = each.value.type
+  allow_overwrite = true
 
   alias {
     name                   = aws_cloudfront_distribution.site.domain_name

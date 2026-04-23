@@ -34,23 +34,110 @@ import {
 } from "spacetimedb";
 
 // Import all reducer arg schemas
+import AcceptInvitationReducer from "./accept_invitation_reducer";
+import CreateGroupReducer from "./create_group_reducer";
+import DeclineInvitationReducer from "./decline_invitation_reducer";
+import InviteToGroupReducer from "./invite_to_group_reducer";
+import LeaveGroupReducer from "./leave_group_reducer";
 import LoginReducer from "./login_reducer";
 import LogoutReducer from "./logout_reducer";
 import ScavengeReducer from "./scavenge_reducer";
 import SignupReducer from "./signup_reducer";
-import UpgradeScavengeReducer from "./upgrade_scavenge_reducer";
+import UpgradeSkillReducer from "./upgrade_skill_reducer";
 
 // Import all procedure arg schemas
 
 // Import all table schema definitions
+import GroupRow from "./group_table";
+import GroupContributionEventRow from "./group_contribution_event_table";
+import GroupInvitationRow from "./group_invitation_table";
+import GroupMemberRow from "./group_member_table";
+import MyGroupRow from "./my_group_table";
+import MyGroupContributionsRow from "./my_group_contributions_table";
+import MyGroupMemberStatesRow from "./my_group_member_states_table";
+import MyGroupMembersRow from "./my_group_members_table";
+import MyGroupMembershipRow from "./my_group_membership_table";
+import MyInvitationsRow from "./my_invitations_table";
 import MyPlayerStateRow from "./my_player_state_table";
 import MySessionRow from "./my_session_table";
+import MySkillsRow from "./my_skills_table";
+import SkillDefinitionRow from "./skill_definition_table";
 import UsernameDirectoryRow from "./username_directory_table";
 
 /** Type-only namespace exports for generated type groups. */
 
 /** The schema information for all tables in this module. This is defined the same was as the tables would have been defined in the server. */
 const tablesSchema = __schema({
+  group: __table({
+    name: 'group',
+    indexes: [
+      { accessor: 'groupId', name: 'group_group_id_idx_btree', algorithm: 'btree', columns: [
+        'groupId',
+      ] },
+      { accessor: 'group_owner', name: 'group_owner_username_idx_btree', algorithm: 'btree', columns: [
+        'ownerUsername',
+      ] },
+    ],
+    constraints: [
+      { name: 'group_group_id_key', constraint: 'unique', columns: ['groupId'] },
+    ],
+  }, GroupRow),
+  groupContributionEvent: __table({
+    name: 'group_contribution_event',
+    indexes: [
+      { accessor: 'eventId', name: 'group_contribution_event_event_id_idx_btree', algorithm: 'btree', columns: [
+        'eventId',
+      ] },
+      { accessor: 'group_contribution_event_group_id', name: 'group_contribution_event_group_id_idx_btree', algorithm: 'btree', columns: [
+        'groupId',
+      ] },
+    ],
+    constraints: [
+      { name: 'group_contribution_event_event_id_key', constraint: 'unique', columns: ['eventId'] },
+    ],
+  }, GroupContributionEventRow),
+  groupInvitation: __table({
+    name: 'group_invitation',
+    indexes: [
+      { accessor: 'group_invitation_group_id', name: 'group_invitation_group_id_idx_btree', algorithm: 'btree', columns: [
+        'groupId',
+      ] },
+      { accessor: 'invitationId', name: 'group_invitation_invitation_id_idx_btree', algorithm: 'btree', columns: [
+        'invitationId',
+      ] },
+      { accessor: 'group_invitation_to_username', name: 'group_invitation_to_username_idx_btree', algorithm: 'btree', columns: [
+        'toUsername',
+      ] },
+    ],
+    constraints: [
+      { name: 'group_invitation_invitation_id_key', constraint: 'unique', columns: ['invitationId'] },
+    ],
+  }, GroupInvitationRow),
+  groupMember: __table({
+    name: 'group_member',
+    indexes: [
+      { accessor: 'group_member_group_id', name: 'group_member_group_id_idx_btree', algorithm: 'btree', columns: [
+        'groupId',
+      ] },
+      { accessor: 'username', name: 'group_member_username_idx_btree', algorithm: 'btree', columns: [
+        'username',
+      ] },
+    ],
+    constraints: [
+      { name: 'group_member_username_key', constraint: 'unique', columns: ['username'] },
+    ],
+  }, GroupMemberRow),
+  skillDefinition: __table({
+    name: 'skill_definition',
+    indexes: [
+      { accessor: 'skillId', name: 'skill_definition_skill_id_idx_btree', algorithm: 'btree', columns: [
+        'skillId',
+      ] },
+    ],
+    constraints: [
+      { name: 'skill_definition_skill_id_key', constraint: 'unique', columns: ['skillId'] },
+    ],
+  }, SkillDefinitionRow),
   usernameDirectory: __table({
     name: 'username_directory',
     indexes: [
@@ -62,6 +149,48 @@ const tablesSchema = __schema({
       { name: 'username_directory_username_key', constraint: 'unique', columns: ['username'] },
     ],
   }, UsernameDirectoryRow),
+  myGroup: __table({
+    name: 'my_group',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, MyGroupRow),
+  myGroupContributions: __table({
+    name: 'my_group_contributions',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, MyGroupContributionsRow),
+  myGroupMemberStates: __table({
+    name: 'my_group_member_states',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, MyGroupMemberStatesRow),
+  myGroupMembers: __table({
+    name: 'my_group_members',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, MyGroupMembersRow),
+  myGroupMembership: __table({
+    name: 'my_group_membership',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, MyGroupMembershipRow),
+  myInvitations: __table({
+    name: 'my_invitations',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, MyInvitationsRow),
   myPlayerState: __table({
     name: 'my_player_state',
     indexes: [
@@ -76,15 +205,27 @@ const tablesSchema = __schema({
     constraints: [
     ],
   }, MySessionRow),
+  mySkills: __table({
+    name: 'my_skills',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, MySkillsRow),
 });
 
 /** The schema information for all reducers in this module. This is defined the same way as the reducers would have been defined in the server, except the body of the reducer is omitted in code generation. */
 const reducersSchema = __reducers(
+  __reducerSchema("accept_invitation", AcceptInvitationReducer),
+  __reducerSchema("create_group", CreateGroupReducer),
+  __reducerSchema("decline_invitation", DeclineInvitationReducer),
+  __reducerSchema("invite_to_group", InviteToGroupReducer),
+  __reducerSchema("leave_group", LeaveGroupReducer),
   __reducerSchema("login", LoginReducer),
   __reducerSchema("logout", LogoutReducer),
   __reducerSchema("scavenge", ScavengeReducer),
   __reducerSchema("signup", SignupReducer),
-  __reducerSchema("upgrade_scavenge", UpgradeScavengeReducer),
+  __reducerSchema("upgrade_skill", UpgradeSkillReducer),
 );
 
 /** The schema information for all procedures in this module. This is defined the same way as the procedures would have been defined in the server. */

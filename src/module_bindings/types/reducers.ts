@@ -6,15 +6,25 @@
 import { type Infer as __Infer } from "spacetimedb";
 
 // Import all reducer arg schemas
+import AcceptInvitationReducer from "../accept_invitation_reducer";
+import CreateGroupReducer from "../create_group_reducer";
+import DeclineInvitationReducer from "../decline_invitation_reducer";
+import InviteToGroupReducer from "../invite_to_group_reducer";
+import LeaveGroupReducer from "../leave_group_reducer";
 import LoginReducer from "../login_reducer";
 import LogoutReducer from "../logout_reducer";
 import ScavengeReducer from "../scavenge_reducer";
 import SignupReducer from "../signup_reducer";
-import UpgradeScavengeReducer from "../upgrade_scavenge_reducer";
+import UpgradeSkillReducer from "../upgrade_skill_reducer";
 
+export type AcceptInvitationParams = __Infer<typeof AcceptInvitationReducer>;
+export type CreateGroupParams = __Infer<typeof CreateGroupReducer>;
+export type DeclineInvitationParams = __Infer<typeof DeclineInvitationReducer>;
+export type InviteToGroupParams = __Infer<typeof InviteToGroupReducer>;
+export type LeaveGroupParams = __Infer<typeof LeaveGroupReducer>;
 export type LoginParams = __Infer<typeof LoginReducer>;
 export type LogoutParams = __Infer<typeof LogoutReducer>;
 export type ScavengeParams = __Infer<typeof ScavengeReducer>;
 export type SignupParams = __Infer<typeof SignupReducer>;
-export type UpgradeScavengeParams = __Infer<typeof UpgradeScavengeReducer>;
+export type UpgradeSkillParams = __Infer<typeof UpgradeSkillReducer>;
 

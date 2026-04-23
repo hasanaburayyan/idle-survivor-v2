@@ -2,25 +2,21 @@
 
 Static-site deployment for the SPA at `https://r2ts.io`.
 
+The web build is the Expo Web export (`expo export -p web`, configured by
+`expo.web.output = "single"` in `app.json` → static single-page app in `dist/`).
+Native iOS/Android builds are out of scope for this script.
+
 Architecture: S3 (private, OAC) → CloudFront (HTTPS, ACM cert in us-east-1, SPA fallback) → Route 53 (apex + www alias).
 
-## One-time bootstrap
+## One-time setup
 
-The Terraform main stack uses S3 + DynamoDB for remote state. Create those first:
-
-```sh
-cd infra/terraform/bootstrap
-terraform init
-terraform apply
-terraform output    # note state_bucket_name and lock_table_name
-```
-
-Edit `infra/terraform/main/backend.tf` and replace `r2ts-tf-state-<account-id>` with the actual `state_bucket_name` from the output above.
-
-Then bring up the main stack:
+Remote state lives in the existing `hasan-tf-bucket` S3 bucket under
+`main/idle-survivor/terraform.tfstate` (configured in
+`infra/terraform/main/backend.tf`). No state locking — don't run two
+`terraform apply`s concurrently.
 
 ```sh
-cd ../main
+cd infra/terraform/main
 terraform init
 terraform apply
 ```
@@ -29,18 +25,19 @@ ACM DNS validation can take a few minutes; CloudFront distribution creation typi
 
 ## Ongoing deploys
 
-Set the build-time env vars (Vite inlines these into the bundle), then run the deploy script:
+Set the build-time env vars (Expo inlines `process.env.EXPO_PUBLIC_*` into the
+bundle), then run the deploy script:
 
 ```sh
-export VITE_SPACETIMEDB_HOST=wss://maincloud.spacetimedb.com
-export VITE_SPACETIMEDB_DB_NAME=idle-survivor
+export EXPO_PUBLIC_SPACETIMEDB_HOST=wss://maincloud.spacetimedb.com
+export EXPO_PUBLIC_SPACETIMEDB_DB_NAME=idle-survivor
 
 scripts/deploy.sh
 ```
 
 What it does:
 1. Verifies env vars + required CLIs are present.
-2. `npm ci && npm run build`.
+2. `npm ci && npm run build:web` (`expo export -p web` → `dist/`).
 3. Reads bucket name + distribution id from `terraform output`.
 4. Syncs hashed assets to S3 with `cache-control: public, max-age=31536000, immutable`.
 5. Uploads `index.html` last with `cache-control: no-cache` (so users see new builds immediately).

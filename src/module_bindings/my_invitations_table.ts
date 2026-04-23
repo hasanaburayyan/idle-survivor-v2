@@ -11,10 +11,9 @@ import {
 } from "spacetimedb";
 
 export default __t.row({
-  username: __t.string(),
-  scrap: __t.u64(),
-  xp: __t.u64(),
-  playerLevel: __t.u32().name("player_level"),
-  skillPoints: __t.u32().name("skill_points"),
-  updatedAt: __t.timestamp().name("updated_at"),
+  invitationId: __t.u64().name("invitation_id"),
+  groupId: __t.u64().name("group_id"),
+  fromUsername: __t.string().name("from_username"),
+  toUsername: __t.string().name("to_username"),
+  createdAt: __t.timestamp().name("created_at"),
 });

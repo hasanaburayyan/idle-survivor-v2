@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Build the Vite SPA, sync it to S3, and invalidate CloudFront.
+# Build the Expo Web SPA (`expo export -p web`), sync it to S3, and
+# invalidate CloudFront.
 #
 # Reads bucket name + distribution id from `terraform output` so there's
 # only one source of truth. Requires aws, terraform, npm on PATH and
@@ -30,9 +31,9 @@ repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 tf_main_dir="$repo_root/infra/terraform/main"
 
 # ---- 1. Preflight ---------------------------------------------------------
-# Vite inlines import.meta.env.VITE_* at build time, so the bundle bakes in
-# whatever values are set right now. Bail out loudly if they're missing.
-required_env=(VITE_SPACETIMEDB_HOST VITE_SPACETIMEDB_DB_NAME)
+# Expo inlines process.env.EXPO_PUBLIC_* at build time, so the bundle bakes
+# in whatever values are set right now. Bail out loudly if they're missing.
+required_env=(EXPO_PUBLIC_SPACETIMEDB_HOST EXPO_PUBLIC_SPACETIMEDB_DB_NAME)
 missing=()
 for v in "${required_env[@]}"; do
   if [[ -z "${!v:-}" ]]; then
@@ -41,9 +42,9 @@ for v in "${required_env[@]}"; do
 done
 if (( ${#missing[@]} > 0 )); then
   echo "ERROR: missing required env vars: ${missing[*]}" >&2
-  echo "These get baked into the bundle by Vite. Export them first, e.g.:" >&2
-  echo "  export VITE_SPACETIMEDB_HOST=wss://maincloud.spacetimedb.com" >&2
-  echo "  export VITE_SPACETIMEDB_DB_NAME=idle-survivor" >&2
+  echo "These get baked into the bundle by Expo. Export them first, e.g.:" >&2
+  echo "  export EXPO_PUBLIC_SPACETIMEDB_HOST=wss://maincloud.spacetimedb.com" >&2
+  echo "  export EXPO_PUBLIC_SPACETIMEDB_DB_NAME=idle-survivor" >&2
   exit 1
 fi
 
@@ -55,10 +56,13 @@ for cmd in aws terraform npm; do
 done
 
 # ---- 2. Build -------------------------------------------------------------
-echo "==> Building SPA"
+# `expo export -p web` writes a static SPA to dist/ (configured by
+# expo.web.output = "single" in app.json).
+echo "==> Building Expo Web SPA"
 cd "$repo_root"
+rm -rf "$repo_root/dist"
 npm ci
-npm run build
+npm run build:web
 
 if [[ ! -f "$repo_root/dist/index.html" ]]; then
   echo "ERROR: build did not produce dist/index.html" >&2
