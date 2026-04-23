@@ -1,0 +1,38 @@
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Vite build output
+dist/
+*.tsbuildinfo
+
+# Local env (never commit secrets / per-machine config)
+.env
+.env.local
+.env.*.local
+
+# Editor / OS
+.DS_Store
+.vscode/
+.idea/
+*.swp
+
+# Terraform — provider cache + state. Lock files (.terraform.lock.hcl) are
+# intentionally NOT ignored: they pin provider versions and should be committed.
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Per-machine / auto-loaded tfvars only — checked-in terraform.tfvars files
+# (e.g. domain_name) are public config and stay tracked.
+*.auto.tfvars
+*.auto.tfvars.json

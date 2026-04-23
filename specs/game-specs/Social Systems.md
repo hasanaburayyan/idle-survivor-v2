@@ -1,0 +1,2 @@
+Overview:
+The game will feature many ways to network with other players, in the form of temporary Squads, visitation to other players Shelters, and Guild Halls where members can form long standing communities.
