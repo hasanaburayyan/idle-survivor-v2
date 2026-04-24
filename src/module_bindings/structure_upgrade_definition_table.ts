@@ -11,15 +11,15 @@ import {
 } from "spacetimedb";
 
 export default __t.row({
-  skillId: __t.string().primaryKey().name("skill_id"),
+  upgradeId: __t.string().primaryKey().name("upgrade_id"),
+  structureId: __t.string().name("structure_id"),
   name: __t.string(),
   description: __t.string(),
+  kind: __t.string(),
+  targetActivityId: __t.string().name("target_activity_id"),
   maxLevel: __t.u32().name("max_level"),
-  prerequisiteSkillId: __t.string().name("prerequisite_skill_id"),
-  prerequisiteLevel: __t.u32().name("prerequisite_level"),
-  prerequisitePlayerLevel: __t.u32().name("prerequisite_player_level"),
-  costSkillPoints: __t.u32().name("cost_skill_points"),
-  positionX: __t.i32().name("position_x"),
-  positionY: __t.i32().name("position_y"),
+  costBase: __t.u64().name("cost_base"),
+  costGrowthPer100: __t.u32().name("cost_growth_per_100"),
+  yieldPerLevelPer100: __t.u32().name("yield_per_level_per_100"),
   sortOrder: __t.u32().name("sort_order"),
 });

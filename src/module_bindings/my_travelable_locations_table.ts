@@ -11,11 +11,11 @@ import {
 } from "spacetimedb";
 
 export default __t.row({
-  username: __t.string(),
-  scrap: __t.u64(),
-  xp: __t.u64(),
-  playerLevel: __t.u32().name("player_level"),
-  skillPoints: __t.u32().name("skill_points"),
-  location: __t.string(),
-  updatedAt: __t.timestamp().name("updated_at"),
+  locationKey: __t.string().name("location_key"),
+  name: __t.string(),
+  icon: __t.string(),
+  description: __t.string(),
+  sortOrder: __t.u32().name("sort_order"),
+  prerequisiteActivityId: __t.string().name("prerequisite_activity_id"),
+  prerequisiteActivityUses: __t.u32().name("prerequisite_activity_uses"),
 });

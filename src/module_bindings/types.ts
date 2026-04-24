@@ -18,6 +18,62 @@ export const Account = __t.object("Account", {
 });
 export type Account = __Infer<typeof Account>;
 
+export const ActivityCost = __t.object("ActivityCost", {
+  id: __t.u64(),
+  activityId: __t.string(),
+  resourceId: __t.string(),
+  amount: __t.u64(),
+});
+export type ActivityCost = __Infer<typeof ActivityCost>;
+
+export const ActivityDefinition = __t.object("ActivityDefinition", {
+  activityId: __t.string(),
+  name: __t.string(),
+  description: __t.string(),
+  icon: __t.string(),
+  locationKey: __t.string(),
+  kind: __t.string(),
+  maxUses: __t.i32(),
+  prerequisiteSkillId: __t.string(),
+  prerequisiteSkillLevel: __t.u32(),
+  progressTarget: __t.u64(),
+  maxPerClick: __t.u64(),
+  yieldResourceId: __t.string(),
+  skillChainPrefix: __t.string(),
+  sortOrder: __t.u32(),
+});
+export type ActivityDefinition = __Infer<typeof ActivityDefinition>;
+
+export const AutomationEvent = __t.object("AutomationEvent", {
+  eventId: __t.u64(),
+  username: __t.string(),
+  structureId: __t.string(),
+  activityId: __t.string(),
+  resourceId: __t.string(),
+  amount: __t.u64(),
+  createdAt: __t.timestamp(),
+});
+export type AutomationEvent = __Infer<typeof AutomationEvent>;
+
+export const AutomationTick = __t.object("AutomationTick", {
+  scheduledId: __t.u64(),
+  scheduledAt: __t.scheduleAt(),
+  username: __t.string(),
+  structureId: __t.string(),
+  activityId: __t.string(),
+});
+export type AutomationTick = __Infer<typeof AutomationTick>;
+
+export const ChatMessage = __t.object("ChatMessage", {
+  messageId: __t.u64(),
+  channelType: __t.string(),
+  channelKey: __t.string(),
+  authorUsername: __t.string(),
+  body: __t.string(),
+  createdAt: __t.timestamp(),
+});
+export type ChatMessage = __Infer<typeof ChatMessage>;
+
 export const Group = __t.object("Group", {
   groupId: __t.u64(),
   ownerUsername: __t.string(),
@@ -30,6 +86,7 @@ export const GroupContributionEvent = __t.object("GroupContributionEvent", {
   groupId: __t.u64(),
   contributor: __t.string(),
   recipient: __t.string(),
+  resourceId: __t.string(),
   amount: __t.u64(),
   createdAt: __t.timestamp(),
 });
@@ -51,6 +108,26 @@ export const GroupMember = __t.object("GroupMember", {
 });
 export type GroupMember = __Infer<typeof GroupMember>;
 
+export const LocationDefinition = __t.object("LocationDefinition", {
+  locationKey: __t.string(),
+  name: __t.string(),
+  icon: __t.string(),
+  description: __t.string(),
+  sortOrder: __t.u32(),
+  prerequisiteActivityId: __t.string(),
+  prerequisiteActivityUses: __t.u32(),
+});
+export type LocationDefinition = __Infer<typeof LocationDefinition>;
+
+export const MyActivityState = __t.object("MyActivityState", {});
+export type MyActivityState = __Infer<typeof MyActivityState>;
+
+export const MyAutomationEvents = __t.object("MyAutomationEvents", {});
+export type MyAutomationEvents = __Infer<typeof MyAutomationEvents>;
+
+export const MyGlobalChat = __t.object("MyGlobalChat", {});
+export type MyGlobalChat = __Infer<typeof MyGlobalChat>;
+
 export const MyGroup = __t.object("MyGroup", {});
 export type MyGroup = __Infer<typeof MyGroup>;
 
@@ -69,14 +146,56 @@ export type MyGroupMembership = __Infer<typeof MyGroupMembership>;
 export const MyInvitations = __t.object("MyInvitations", {});
 export type MyInvitations = __Infer<typeof MyInvitations>;
 
+export const MyPartyChat = __t.object("MyPartyChat", {});
+export type MyPartyChat = __Infer<typeof MyPartyChat>;
+
 export const MyPlayerState = __t.object("MyPlayerState", {});
 export type MyPlayerState = __Infer<typeof MyPlayerState>;
+
+export const MyResources = __t.object("MyResources", {});
+export type MyResources = __Infer<typeof MyResources>;
 
 export const MySession = __t.object("MySession", {});
 export type MySession = __Infer<typeof MySession>;
 
+export const MyShelterActivities = __t.object("MyShelterActivities", {});
+export type MyShelterActivities = __Infer<typeof MyShelterActivities>;
+
 export const MySkills = __t.object("MySkills", {});
 export type MySkills = __Infer<typeof MySkills>;
+
+export const MyStructureUpgrades = __t.object("MyStructureUpgrades", {});
+export type MyStructureUpgrades = __Infer<typeof MyStructureUpgrades>;
+
+export const MyStructures = __t.object("MyStructures", {});
+export type MyStructures = __Infer<typeof MyStructures>;
+
+export const MyTravelableLocations = __t.object("MyTravelableLocations", {});
+export type MyTravelableLocations = __Infer<typeof MyTravelableLocations>;
+
+export const MyVisibleActivities = __t.object("MyVisibleActivities", {});
+export type MyVisibleActivities = __Infer<typeof MyVisibleActivities>;
+
+export const MyWhispers = __t.object("MyWhispers", {});
+export type MyWhispers = __Infer<typeof MyWhispers>;
+
+export const PlayerActivity = __t.object("PlayerActivity", {
+  id: __t.u64(),
+  username: __t.string(),
+  activityId: __t.string(),
+  timesUsed: __t.u32(),
+  progress: __t.u64(),
+  level: __t.u32(),
+});
+export type PlayerActivity = __Infer<typeof PlayerActivity>;
+
+export const PlayerResource = __t.object("PlayerResource", {
+  id: __t.u64(),
+  username: __t.string(),
+  resourceId: __t.string(),
+  amount: __t.u64(),
+});
+export type PlayerResource = __Infer<typeof PlayerResource>;
 
 export const PlayerSkill = __t.object("PlayerSkill", {
   id: __t.u64(),
@@ -92,9 +211,36 @@ export const PlayerState = __t.object("PlayerState", {
   xp: __t.u64(),
   playerLevel: __t.u32(),
   skillPoints: __t.u32(),
+  location: __t.string(),
   updatedAt: __t.timestamp(),
 });
 export type PlayerState = __Infer<typeof PlayerState>;
+
+export const PlayerStructure = __t.object("PlayerStructure", {
+  id: __t.u64(),
+  username: __t.string(),
+  structureId: __t.string(),
+  slottedActivityId: __t.string(),
+});
+export type PlayerStructure = __Infer<typeof PlayerStructure>;
+
+export const PlayerStructureUpgrade = __t.object("PlayerStructureUpgrade", {
+  id: __t.u64(),
+  username: __t.string(),
+  upgradeId: __t.string(),
+  level: __t.u32(),
+});
+export type PlayerStructureUpgrade = __Infer<typeof PlayerStructureUpgrade>;
+
+export const ResourceDefinition = __t.object("ResourceDefinition", {
+  resourceId: __t.string(),
+  name: __t.string(),
+  icon: __t.string(),
+  unlockSkillId: __t.string(),
+  unlockSkillLevel: __t.u32(),
+  sortOrder: __t.u32(),
+});
+export type ResourceDefinition = __Infer<typeof ResourceDefinition>;
 
 export const Session = __t.object("Session", {
   identity: __t.identity(),
@@ -110,11 +256,47 @@ export const SkillDefinition = __t.object("SkillDefinition", {
   maxLevel: __t.u32(),
   prerequisiteSkillId: __t.string(),
   prerequisiteLevel: __t.u32(),
+  prerequisitePlayerLevel: __t.u32(),
+  costSkillPoints: __t.u32(),
   positionX: __t.i32(),
   positionY: __t.i32(),
   sortOrder: __t.u32(),
 });
 export type SkillDefinition = __Infer<typeof SkillDefinition>;
+
+export const SkillPrerequisite = __t.object("SkillPrerequisite", {
+  id: __t.u64(),
+  skillId: __t.string(),
+  requiredSkillId: __t.string(),
+  requiredLevel: __t.u32(),
+});
+export type SkillPrerequisite = __Infer<typeof SkillPrerequisite>;
+
+export const StructureDefinition = __t.object("StructureDefinition", {
+  structureId: __t.string(),
+  name: __t.string(),
+  description: __t.string(),
+  icon: __t.string(),
+  locationKey: __t.string(),
+  buildActivityId: __t.string(),
+  sortOrder: __t.u32(),
+});
+export type StructureDefinition = __Infer<typeof StructureDefinition>;
+
+export const StructureUpgradeDefinition = __t.object("StructureUpgradeDefinition", {
+  upgradeId: __t.string(),
+  structureId: __t.string(),
+  name: __t.string(),
+  description: __t.string(),
+  kind: __t.string(),
+  targetActivityId: __t.string(),
+  maxLevel: __t.u32(),
+  costBase: __t.u64(),
+  costGrowthPer100: __t.u32(),
+  yieldPerLevelPer100: __t.u32(),
+  sortOrder: __t.u32(),
+});
+export type StructureUpgradeDefinition = __Infer<typeof StructureUpgradeDefinition>;
 
 export const UsernameDirectory = __t.object("UsernameDirectory", {
   username: __t.string(),

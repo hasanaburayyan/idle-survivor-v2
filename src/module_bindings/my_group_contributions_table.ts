@@ -15,6 +15,7 @@ export default __t.row({
   groupId: __t.u64().name("group_id"),
   contributor: __t.string(),
   recipient: __t.string(),
+  resourceId: __t.string().name("resource_id"),
   amount: __t.u64(),
   createdAt: __t.timestamp().name("created_at"),
 });

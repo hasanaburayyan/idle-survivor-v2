@@ -11,11 +11,10 @@ import {
 } from "spacetimedb";
 
 export default __t.row({
-  username: __t.string(),
-  scrap: __t.u64(),
-  xp: __t.u64(),
-  playerLevel: __t.u32().name("player_level"),
-  skillPoints: __t.u32().name("skill_points"),
-  location: __t.string(),
-  updatedAt: __t.timestamp().name("updated_at"),
+  messageId: __t.u64().name("message_id"),
+  channelType: __t.string().name("channel_type"),
+  channelKey: __t.string().name("channel_key"),
+  authorUsername: __t.string().name("author_username"),
+  body: __t.string(),
+  createdAt: __t.timestamp().name("created_at"),
 });

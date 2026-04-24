@@ -1,0 +1,2 @@
+Overview:
+A structure in the Shelter that unlocks the "Equipment" menu on the bottom of the screen. Once unlocked, the player will have a single empty equipment slot called "Tool". At the same time, they have a new Crafting Activity within the Armory, and one recipe unlocked called  "Rucksack" that creates an item within the players inventory, also unlocked with the completion of the Armory. When equipped, the Rucksack will increase Click Resource Yield by 50%, for any activity the player performs. The inventory can be a simple list, showing the 

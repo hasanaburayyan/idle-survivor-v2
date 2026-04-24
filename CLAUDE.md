@@ -1,6 +1,8 @@
 # Repo rules
 - When a user refrences a spec look in ./specs/game-specs for a match
 - Efficiency and multiplayer are fundamental
+- Keep as much data on the database as possible, only use client where it makes sense to pawn off responsibility.
+- Everything should be a table if possible
 
 # SpacetimeDB Rules (All Languages)
 

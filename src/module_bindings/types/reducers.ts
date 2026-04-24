@@ -7,24 +7,42 @@ import { type Infer as __Infer } from "spacetimedb";
 
 // Import all reducer arg schemas
 import AcceptInvitationReducer from "../accept_invitation_reducer";
+import AdvanceBuildReducer from "../advance_build_reducer";
+import CheatAddLevelReducer from "../cheat_add_level_reducer";
+import CheatAddScrapReducer from "../cheat_add_scrap_reducer";
+import ClearSlotReducer from "../clear_slot_reducer";
 import CreateGroupReducer from "../create_group_reducer";
 import DeclineInvitationReducer from "../decline_invitation_reducer";
 import InviteToGroupReducer from "../invite_to_group_reducer";
 import LeaveGroupReducer from "../leave_group_reducer";
 import LoginReducer from "../login_reducer";
 import LogoutReducer from "../logout_reducer";
-import ScavengeReducer from "../scavenge_reducer";
+import ScavengeActivityReducer from "../scavenge_activity_reducer";
+import SendChatMessageReducer from "../send_chat_message_reducer";
 import SignupReducer from "../signup_reducer";
+import SlotActivityReducer from "../slot_activity_reducer";
+import TravelToReducer from "../travel_to_reducer";
+import UpgradeScavengeActivityReducer from "../upgrade_scavenge_activity_reducer";
 import UpgradeSkillReducer from "../upgrade_skill_reducer";
+import UpgradeStructureReducer from "../upgrade_structure_reducer";
 
 export type AcceptInvitationParams = __Infer<typeof AcceptInvitationReducer>;
+export type AdvanceBuildParams = __Infer<typeof AdvanceBuildReducer>;
+export type CheatAddLevelParams = __Infer<typeof CheatAddLevelReducer>;
+export type CheatAddScrapParams = __Infer<typeof CheatAddScrapReducer>;
+export type ClearSlotParams = __Infer<typeof ClearSlotReducer>;
 export type CreateGroupParams = __Infer<typeof CreateGroupReducer>;
 export type DeclineInvitationParams = __Infer<typeof DeclineInvitationReducer>;
 export type InviteToGroupParams = __Infer<typeof InviteToGroupReducer>;
 export type LeaveGroupParams = __Infer<typeof LeaveGroupReducer>;
 export type LoginParams = __Infer<typeof LoginReducer>;
 export type LogoutParams = __Infer<typeof LogoutReducer>;
-export type ScavengeParams = __Infer<typeof ScavengeReducer>;
+export type ScavengeActivityParams = __Infer<typeof ScavengeActivityReducer>;
+export type SendChatMessageParams = __Infer<typeof SendChatMessageReducer>;
 export type SignupParams = __Infer<typeof SignupReducer>;
+export type SlotActivityParams = __Infer<typeof SlotActivityReducer>;
+export type TravelToParams = __Infer<typeof TravelToReducer>;
+export type UpgradeScavengeActivityParams = __Infer<typeof UpgradeScavengeActivityReducer>;
 export type UpgradeSkillParams = __Infer<typeof UpgradeSkillReducer>;
+export type UpgradeStructureParams = __Infer<typeof UpgradeStructureReducer>;
 

@@ -17,83 +17,58 @@ export default function GroupPanel({ username }: GroupPanelProps) {
   const [members] = useTable(tables.myGroupMembers);
   const [memberStates] = useTable(tables.myGroupMemberStates);
   const [contributions] = useTable(tables.myGroupContributions);
-  const [invitations] = useTable(tables.myInvitations);
+  const [expanded, setExpanded] = useState(true);
 
-  const inGroup = memberships.length > 0;
-
-  if (!inGroup) {
-    return (
-      <View className="px-4 py-3 border-t border-slate-800 bg-slate-950">
-        {invitations.length > 0 ? (
-          <InvitationList invitations={invitations} />
-        ) : (
-          <CreateGroupButton />
-        )}
-      </View>
-    );
-  }
+  if (memberships.length === 0) return null;
 
   const currentGroup = group[0];
   const isOwner = currentGroup?.ownerUsername === username;
   const isFull = members.length >= MAX_GROUP_SIZE;
 
   return (
-    <View className="px-4 py-3 border-t border-slate-800 bg-slate-950 gap-3">
+    <View className="px-4 py-2 border-t border-slate-800 bg-slate-950 gap-2">
       <View className="flex-row items-center justify-between">
-        <Text className="text-xs uppercase tracking-widest text-slate-500">
-          Group {isOwner ? '· Owner' : ''}
-        </Text>
+        <Pressable
+          onPress={() => setExpanded(e => !e)}
+          className="flex-row items-center gap-2"
+        >
+          <Text className="text-slate-500 text-xs">
+            {expanded ? '▾' : '▸'}
+          </Text>
+          <Text className="text-xs uppercase tracking-widest text-slate-500">
+            Group {isOwner ? '· Owner' : ''} · {members.length} member
+            {members.length === 1 ? '' : 's'}
+          </Text>
+        </Pressable>
         <LeaveGroupButton />
       </View>
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={{ gap: 10 }}
-      >
-        {members.map(m => (
-          <MemberCard
-            key={m.username}
-            viewer={username}
-            memberUsername={m.username}
-            level={
-              memberStates.find(ps => ps.username === m.username)
-                ?.playerLevel ?? 0
-            }
-            contributions={contributions}
-          />
-        ))}
-      </ScrollView>
-      {!isFull ? <InviteByUsername /> : null}
+      {expanded ? (
+        <>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ gap: 8 }}
+          >
+            {members.map(m => {
+              const state = memberStates.find(
+                ps => ps.username === m.username
+              );
+              return (
+                <MemberCard
+                  key={m.username}
+                  viewer={username}
+                  memberUsername={m.username}
+                  level={state?.playerLevel ?? 0}
+                  location={state?.location ?? 'the_wastes'}
+                  contributions={contributions}
+                />
+              );
+            })}
+          </ScrollView>
+          {!isFull ? <InviteByUsername /> : null}
+        </>
+      ) : null}
     </View>
-  );
-}
-
-function CreateGroupButton() {
-  const createGroup = useReducer(reducers.createGroup);
-  const [submitting, setSubmitting] = useState(false);
-  const onPress = async () => {
-    if (submitting) return;
-    setSubmitting(true);
-    try {
-      await createGroup();
-    } catch {
-      /* ignore — user can tap again */
-    } finally {
-      setSubmitting(false);
-    }
-  };
-  return (
-    <Pressable
-      onPress={onPress}
-      disabled={submitting}
-      className={`rounded-lg py-3 items-center ${
-        submitting ? 'bg-emerald-700' : 'bg-emerald-500'
-      }`}
-    >
-      <Text className="text-sm font-medium text-slate-950">
-        {submitting ? 'Creating…' : 'Create group'}
-      </Text>
-    </Pressable>
   );
 }
 
@@ -177,95 +152,16 @@ function InviteByUsername() {
   );
 }
 
-interface InvitationListProps {
-  invitations: readonly {
-    invitationId: bigint;
-    fromUsername: string;
-  }[];
-}
-
-function InvitationList({ invitations }: InvitationListProps) {
-  return (
-    <View className="gap-2">
-      <Text className="text-xs uppercase tracking-widest text-slate-500">
-        Invitations
-      </Text>
-      {invitations.map(inv => (
-        <InvitationRow
-          key={inv.invitationId.toString()}
-          invitationId={inv.invitationId}
-          fromUsername={inv.fromUsername}
-        />
-      ))}
-    </View>
-  );
-}
-
-function InvitationRow({
-  invitationId,
-  fromUsername,
-}: {
-  invitationId: bigint;
-  fromUsername: string;
-}) {
-  const accept = useReducer(reducers.acceptInvitation);
-  const decline = useReducer(reducers.declineInvitation);
-  const [busy, setBusy] = useState(false);
-  const onAccept = async () => {
-    if (busy) return;
-    setBusy(true);
-    try {
-      await accept({ invitationId });
-    } catch {
-      /* ignore */
-    } finally {
-      setBusy(false);
-    }
-  };
-  const onDecline = async () => {
-    if (busy) return;
-    setBusy(true);
-    try {
-      await decline({ invitationId });
-    } catch {
-      /* ignore */
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <View className="flex-row items-center justify-between rounded-lg bg-slate-900 border border-slate-800 px-3 py-2">
-      <Text className="text-sm text-slate-100">
-        <Text className="font-semibold">{fromUsername}</Text> invited you
-      </Text>
-      <View className="flex-row gap-2">
-        <Pressable
-          onPress={onAccept}
-          disabled={busy}
-          className="rounded-lg bg-emerald-500 px-3 py-1.5"
-        >
-          <Text className="text-xs font-medium text-slate-950">Accept</Text>
-        </Pressable>
-        <Pressable
-          onPress={onDecline}
-          disabled={busy}
-          className="rounded-lg bg-slate-800 px-3 py-1.5"
-        >
-          <Text className="text-xs font-medium text-slate-100">Decline</Text>
-        </Pressable>
-      </View>
-    </View>
-  );
-}
-
 interface MemberCardProps {
   viewer: string;
   memberUsername: string;
   level: number;
+  location: string;
   contributions: readonly {
     eventId: bigint;
     contributor: string;
     recipient: string;
+    resourceId: string;
     amount: bigint;
     createdAt: { microsSinceUnixEpoch: bigint };
   }[];
@@ -275,6 +171,7 @@ function MemberCard({
   viewer,
   memberUsername,
   level,
+  location,
   contributions,
 }: MemberCardProps) {
   const [tick, setTick] = useState(0);
@@ -307,7 +204,7 @@ function MemberCard({
       if (seenIds.current.has(id)) continue;
       seenIds.current.add(id);
       if (e.contributor === memberUsername && e.recipient === viewer) {
-        spawnBurst(cardRef.current, e.amount);
+        spawnBurst(cardRef.current, e.resourceId || 'scrap', e.amount);
       }
     }
   }, [contributions, memberUsername, viewer, spawnBurst]);
@@ -315,7 +212,7 @@ function MemberCard({
   return (
     <View
       ref={r => (cardRef.current = r)}
-      className={`w-36 rounded-xl border p-3 ${classes}`}
+      className={`w-32 rounded-xl border p-2.5 ${classes}`}
     >
       <Text
         className="text-sm font-semibold text-slate-100"
@@ -325,11 +222,17 @@ function MemberCard({
         {isSelf ? ' (you)' : ''}
       </Text>
       <Text className="text-xs text-slate-400 mt-1">Lv {level}</Text>
-      <Text className="text-[11px] text-slate-500 mt-2">The Wastes</Text>
+      <LocationLabel locationKey={location} />
       <View className="flex-row items-center gap-1 mt-1">
         <View className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
         <Text className="text-[11px] text-slate-500">Idle</Text>
       </View>
     </View>
   );
+}
+
+function LocationLabel({ locationKey }: { locationKey: string }) {
+  const [locations] = useTable(tables.locationDefinition);
+  const name = locations.find(l => l.locationKey === locationKey)?.name ?? locationKey;
+  return <Text className="text-[11px] text-slate-500 mt-2">{name}</Text>;
 }

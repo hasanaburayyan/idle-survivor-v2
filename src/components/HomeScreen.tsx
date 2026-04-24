@@ -3,14 +3,18 @@ import { Pressable, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { reducers, tables } from '../module_bindings';
 import { useReducer, useTable } from 'spacetimedb/react';
-import { formatScrap } from '../lib/scavenge';
-import ScrapIcon from './ScrapIcon';
+import { xpToNextLevel } from '../lib/progression';
 import GroupPanel from './GroupPanel';
 import TabBar, { type TabKey } from './TabBar';
-import WastesTab from './WastesTab';
+import ActivitiesTab from './ActivitiesTab';
+import TravelTab from './TravelTab';
+import ShelterTab from './ShelterTab';
 import SkillTreeTab from './SkillTreeTab';
 import SocialTab from './SocialTab';
-import { ScrapFlowProvider, useScrapFlow } from './ScrapFlow';
+import ChatTab from './ChatTab';
+import { ScrapFlowProvider } from './ScrapFlow';
+import AutomationFeedback from './AutomationFeedback';
+import ResourceStrip from './ResourceStrip';
 
 interface HomeScreenProps {
   username: string;
@@ -28,10 +32,16 @@ function HomeScreenInner({ username }: HomeScreenProps) {
   const [playerStates] = useTable(tables.myPlayerState);
   const ps = playerStates[0];
   const logout = useReducer(reducers.logout);
-  const { setCounterRef } = useScrapFlow();
-  const [tab, setTab] = useState<TabKey>('wastes');
+  const cheatLevel = useReducer(reducers.cheatAddLevel);
+  const cheatScrap = useReducer(reducers.cheatAddScrap);
+  const [tab, setTab] = useState<TabKey>('activities');
+  const [devOpen, setDevOpen] = useState(false);
 
-  const scrap = ps?.scrap ?? 0n;
+  const playerLevel = ps?.playerLevel ?? 0;
+  const xp = ps?.xp ?? 0n;
+  const nextLevelXp = xpToNextLevel(playerLevel);
+  const xpPct =
+    nextLevelXp === 0n ? 0 : Math.min(100, Number((xp * 100n) / nextLevelXp));
 
   const onLogout = () => {
     logout().catch(() => {});
@@ -39,34 +49,81 @@ function HomeScreenInner({ username }: HomeScreenProps) {
 
   return (
     <SafeAreaView className="flex-1 bg-slate-950">
-      <View className="flex-row items-center justify-between px-6 py-4 border-b border-slate-800">
-        <View
-          ref={r => setCounterRef(r)}
-          className="flex-row items-center gap-2 bg-slate-900 border border-slate-800 rounded-full px-4 py-2"
-        >
-          <ScrapIcon size={18} />
-          <Text className="font-semibold text-lg text-slate-100">
-            {formatScrap(scrap)}
-          </Text>
-          <Text className="text-xs text-slate-500">scrap</Text>
+      <AutomationFeedback />
+      <View className="px-4 py-2 border-b border-slate-800 gap-2">
+        <View className="flex-row items-center justify-between gap-2">
+          <View className="flex-1">
+            <ResourceStrip />
+          </View>
+          <View className="flex-row items-center gap-2">
+            <Text className="text-xs text-slate-500">
+              <Text className="text-slate-300">{username}</Text>
+            </Text>
+            <Pressable
+              onPress={() => setDevOpen(o => !o)}
+              className={`rounded-lg px-2 py-1.5 ${
+                devOpen ? 'bg-fuchsia-600' : 'bg-slate-800'
+              }`}
+            >
+              <Text
+                className={`text-[11px] font-medium ${
+                  devOpen ? 'text-slate-950' : 'text-slate-300'
+                }`}
+              >
+                ⚡
+              </Text>
+            </Pressable>
+            {devOpen ? (
+              <>
+                <Pressable
+                  onPress={() => cheatLevel().catch(() => {})}
+                  className="rounded-lg bg-fuchsia-600 px-2 py-1.5"
+                >
+                  <Text className="text-[11px] font-medium text-slate-950">
+                    +Lv
+                  </Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => cheatScrap().catch(() => {})}
+                  className="rounded-lg bg-fuchsia-600 px-2 py-1.5"
+                >
+                  <Text className="text-[11px] font-medium text-slate-950">
+                    +10K
+                  </Text>
+                </Pressable>
+              </>
+            ) : null}
+            <Pressable
+              onPress={onLogout}
+              className="rounded-lg bg-slate-800 px-3 py-1.5"
+            >
+              <Text className="text-xs font-medium text-slate-100">Log out</Text>
+            </Pressable>
+          </View>
         </View>
-        <View className="flex-row items-center gap-3">
-          <Text className="text-xs text-slate-500">
-            <Text className="text-slate-300">{username}</Text>
+        <View className="flex-row items-center gap-2">
+          <Text className="text-[11px] font-semibold text-slate-400">
+            Lv {playerLevel}
           </Text>
-          <Pressable
-            onPress={onLogout}
-            className="rounded-lg bg-slate-800 px-3 py-1.5"
-          >
-            <Text className="text-xs font-medium text-slate-100">Log out</Text>
-          </Pressable>
+          <View className="flex-1 h-1.5 rounded-full bg-slate-800 overflow-hidden">
+            <View
+              className="h-full bg-amber-500"
+              style={{ width: `${xpPct}%` }}
+            />
+          </View>
+          <Text className="text-[11px] text-slate-500">
+            {xp.toString()} / {nextLevelXp.toString()}
+          </Text>
         </View>
       </View>
 
       <View className="flex-1">
-        {tab === 'wastes' ? <WastesTab /> : null}
+        {tab === 'activities' ? <ActivitiesTab /> : null}
+        {tab === 'travel' ? <TravelTab /> : null}
+        {tab === 'shelter' ? <ShelterTab /> : null}
         {tab === 'skill_tree' ? <SkillTreeTab /> : null}
         {tab === 'social' ? <SocialTab /> : null}
+        {tab === 'chat' ? <ChatTab username={username} /> : null}
       </View>
 
       <TabBar active={tab} onChange={setTab} />

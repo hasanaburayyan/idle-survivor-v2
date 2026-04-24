@@ -1,11 +1,17 @@
-import { useMemo, useState } from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { useMemo, useRef, useState } from 'react';
+import {
+  Animated,
+  PanResponder,
+  Pressable,
+  Text,
+  View,
+} from 'react-native';
+import Svg, { Line } from 'react-native-svg';
 import { useReducer, useTable } from 'spacetimedb/react';
 import { reducers, tables } from '../module_bindings';
 
-const NODE_WIDTH = 150;
-const NODE_HEIGHT = 120;
-const CANVAS_PADDING = 80;
+const NODE_DIAMETER = 96;
+const CANVAS_PADDING = 220;
 
 interface SkillDef {
   skillId: string;
@@ -14,21 +20,35 @@ interface SkillDef {
   maxLevel: number;
   prerequisiteSkillId: string;
   prerequisiteLevel: number;
+  prerequisitePlayerLevel: number;
+  costSkillPoints: number;
   positionX: number;
   positionY: number;
   sortOrder: number;
 }
 
+interface SkillPrereqRow {
+  id: bigint;
+  skillId: string;
+  requiredSkillId: string;
+  requiredLevel: number;
+}
+
+function nodePosition(def: SkillDef): { x: number; y: number } {
+  return { x: def.positionX, y: def.positionY };
+}
+
 export default function SkillTreeTab() {
   const [definitions] = useTable(tables.skillDefinition);
+  const [extraPrereqs] = useTable(tables.skillPrerequisite);
   const [mySkills] = useTable(tables.mySkills);
   const [playerStates] = useTable(tables.myPlayerState);
   const upgrade = useReducer(reducers.upgradeSkill);
 
   const [selected, setSelected] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-
   const skillPoints = playerStates[0]?.skillPoints ?? 0;
+  const playerLevel = playerStates[0]?.playerLevel ?? 0;
 
   const levelBySkill = useMemo(() => {
     const map = new Map<string, number>();
@@ -36,36 +56,94 @@ export default function SkillTreeTab() {
     return map;
   }, [mySkills]);
 
+  const extraPrereqsBySkill = useMemo(() => {
+    const map = new Map<string, SkillPrereqRow[]>();
+    for (const row of extraPrereqs as SkillPrereqRow[]) {
+      const list = map.get(row.skillId);
+      if (list) list.push(row);
+      else map.set(row.skillId, [row]);
+    }
+    return map;
+  }, [extraPrereqs]);
+
   const sorted = useMemo(
     () =>
       [...definitions].sort((a, b) => a.sortOrder - b.sortOrder) as SkillDef[],
     [definitions]
   );
 
+  const allPrereqsMet = (def: SkillDef): boolean => {
+    if (def.prerequisiteSkillId !== '') {
+      const lvl = levelBySkill.get(def.prerequisiteSkillId) ?? 0;
+      if (lvl < def.prerequisiteLevel) return false;
+    }
+    if (def.prerequisitePlayerLevel > 0 && playerLevel < def.prerequisitePlayerLevel) {
+      return false;
+    }
+    const extras = extraPrereqsBySkill.get(def.skillId);
+    if (extras) {
+      for (const extra of extras) {
+        const lvl = levelBySkill.get(extra.requiredSkillId) ?? 0;
+        if (lvl < extra.requiredLevel) return false;
+      }
+    }
+    return true;
+  };
+
   const visible = useMemo(() => {
-    return sorted.filter(def => {
-      if (def.prerequisiteSkillId === '') return true;
-      const prereqLevel = levelBySkill.get(def.prerequisiteSkillId) ?? 0;
-      return prereqLevel >= def.prerequisiteLevel;
-    });
-  }, [sorted, levelBySkill]);
+    return sorted.filter(def => allPrereqsMet(def));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sorted, levelBySkill, extraPrereqsBySkill, playerLevel]);
 
   const visibleIds = useMemo(
     () => new Set(visible.map(d => d.skillId)),
     [visible]
   );
 
-  const canvasWidth = useMemo(() => {
-    if (visible.length === 0) return 0;
-    const maxX = Math.max(...visible.map(d => d.positionX));
-    return maxX + NODE_WIDTH + CANVAS_PADDING * 2;
+  const { canvasWidth, canvasHeight, originX, originY } = useMemo(() => {
+    if (visible.length === 0) {
+      return { canvasWidth: 0, canvasHeight: 0, originX: 0, originY: 0 };
+    }
+    const xs = visible.map(d => nodePosition(d).x);
+    const ys = visible.map(d => nodePosition(d).y);
+    const minX = Math.min(...xs);
+    const minY = Math.min(...ys);
+    const maxX = Math.max(...xs);
+    const maxY = Math.max(...ys);
+    return {
+      canvasWidth: maxX - minX + NODE_DIAMETER + CANVAS_PADDING * 2,
+      canvasHeight: maxY - minY + NODE_DIAMETER + CANVAS_PADDING * 2,
+      originX: CANVAS_PADDING - minX + NODE_DIAMETER / 2,
+      originY: CANVAS_PADDING - minY + NODE_DIAMETER / 2,
+    };
   }, [visible]);
 
-  const canvasHeight = useMemo(() => {
-    if (visible.length === 0) return 0;
-    const maxY = Math.max(...visible.map(d => d.positionY));
-    return maxY + NODE_HEIGHT + CANVAS_PADDING * 2;
-  }, [visible]);
+  const pan = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
+  const panOffset = useRef({ x: 0, y: 0 });
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => false,
+        onMoveShouldSetPanResponder: (_, g) =>
+          Math.abs(g.dx) + Math.abs(g.dy) > 6,
+        onPanResponderGrant: () => {
+          pan.setOffset({ x: panOffset.current.x, y: panOffset.current.y });
+          pan.setValue({ x: 0, y: 0 });
+        },
+        onPanResponderMove: Animated.event(
+          [null, { dx: pan.x, dy: pan.y }],
+          { useNativeDriver: false }
+        ),
+        onPanResponderRelease: (_, g) => {
+          panOffset.current = {
+            x: panOffset.current.x + g.dx,
+            y: panOffset.current.y + g.dy,
+          };
+          pan.flattenOffset();
+        },
+      }),
+    [pan]
+  );
 
   const onUpgrade = async (skillId: string) => {
     if (busy) return;
@@ -73,7 +151,7 @@ export default function SkillTreeTab() {
     try {
       await upgrade({ skillId });
     } catch {
-      /* swallow — error surfaces in server logs */
+      /* error shown in server logs */
     } finally {
       setBusy(false);
     }
@@ -88,7 +166,7 @@ export default function SkillTreeTab() {
   }
 
   const selectedDef = selected
-    ? sorted.find(d => d.skillId === selected)
+    ? sorted.find(d => d.skillId === selected) ?? null
     : null;
   const selectedLevel = selectedDef
     ? levelBySkill.get(selectedDef.skillId) ?? 0
@@ -96,12 +174,9 @@ export default function SkillTreeTab() {
   const selectedAtMax = selectedDef
     ? selectedLevel >= selectedDef.maxLevel
     : false;
-  const selectedPrereqMet = selectedDef
-    ? selectedDef.prerequisiteSkillId === '' ||
-      (levelBySkill.get(selectedDef.prerequisiteSkillId) ?? 0) >=
-        selectedDef.prerequisiteLevel
-    : false;
-  const canAfford = skillPoints >= 1;
+  const selectedPrereqMet = selectedDef ? allPrereqsMet(selectedDef) : false;
+  const selectedCost = selectedDef?.costSkillPoints ?? 1;
+  const canAfford = skillPoints >= selectedCost;
 
   return (
     <View className="flex-1">
@@ -113,52 +188,94 @@ export default function SkillTreeTab() {
           {skillPoints} point{skillPoints === 1 ? '' : 's'}
         </Text>
       </View>
-      <ScrollView
-        horizontal
-        contentContainerStyle={{ minWidth: canvasWidth }}
-        showsHorizontalScrollIndicator={false}
+
+      <View
+        className="flex-1 bg-slate-950"
+        style={{ overflow: 'hidden' }}
+        {...panResponder.panHandlers}
       >
-        <ScrollView
-          contentContainerStyle={{ minHeight: canvasHeight }}
-          showsVerticalScrollIndicator={false}
+        <Animated.View
+          style={{
+            width: canvasWidth,
+            height: canvasHeight,
+            transform: pan.getTranslateTransform(),
+          }}
         >
-          <View style={{ width: canvasWidth, height: canvasHeight }}>
-            {visible.map(def => {
-              if (def.prerequisiteSkillId === '') return null;
-              if (!visibleIds.has(def.prerequisiteSkillId)) return null;
-              const prereq = sorted.find(
-                d => d.skillId === def.prerequisiteSkillId
-              );
-              if (!prereq) return null;
-              return (
-                <Connector
-                  key={`c-${def.skillId}`}
-                  from={{
-                    x: prereq.positionX + CANVAS_PADDING + NODE_WIDTH / 2,
-                    y: prereq.positionY + CANVAS_PADDING + NODE_HEIGHT / 2,
-                  }}
-                  to={{
-                    x: def.positionX + CANVAS_PADDING + NODE_WIDTH / 2,
-                    y: def.positionY + CANVAS_PADDING + NODE_HEIGHT / 2,
-                  }}
-                />
-              );
+          <Svg
+            width={canvasWidth}
+            height={canvasHeight}
+            style={{ position: 'absolute', top: 0, left: 0 }}
+            pointerEvents="none"
+          >
+            {visible.flatMap(def => {
+              const edges: {
+                fromId: string;
+                requiredLevel: number;
+              }[] = [];
+              if (def.prerequisiteSkillId !== '') {
+                edges.push({
+                  fromId: def.prerequisiteSkillId,
+                  requiredLevel: def.prerequisiteLevel,
+                });
+              }
+              const extras = extraPrereqsBySkill.get(def.skillId) ?? [];
+              for (const extra of extras) {
+                edges.push({
+                  fromId: extra.requiredSkillId,
+                  requiredLevel: extra.requiredLevel,
+                });
+              }
+              return edges
+                .map(edge => {
+                  if (!visibleIds.has(edge.fromId)) return null;
+                  const prereq = sorted.find(d => d.skillId === edge.fromId);
+                  if (!prereq) return null;
+                  const from = nodePosition(prereq);
+                  const to = nodePosition(def);
+                  const fromLevel = levelBySkill.get(prereq.skillId) ?? 0;
+                  const toLevel = levelBySkill.get(def.skillId) ?? 0;
+                  const satisfied = fromLevel >= edge.requiredLevel;
+                  const stroke =
+                    satisfied && toLevel > 0
+                      ? '#10b981'
+                      : satisfied
+                        ? '#64748b'
+                        : '#334155';
+                  return (
+                    <Line
+                      key={`c-${def.skillId}-${edge.fromId}`}
+                      x1={originX + from.x}
+                      y1={originY + from.y}
+                      x2={originX + to.x}
+                      y2={originY + to.y}
+                      stroke={stroke}
+                      strokeWidth={3}
+                      strokeLinecap="round"
+                    />
+                  );
+                })
+                .filter(Boolean);
             })}
-            {visible.map(def => {
-              const level = levelBySkill.get(def.skillId) ?? 0;
-              return (
-                <SkillNode
-                  key={def.skillId}
-                  def={def}
-                  level={level}
-                  selected={selected === def.skillId}
-                  onPress={() => setSelected(def.skillId)}
-                />
-              );
-            })}
-          </View>
-        </ScrollView>
-      </ScrollView>
+          </Svg>
+
+          {visible.map(def => {
+            const pos = nodePosition(def);
+            const level = levelBySkill.get(def.skillId) ?? 0;
+            return (
+              <SkillNode
+                key={def.skillId}
+                def={def}
+                level={level}
+                selected={selected === def.skillId}
+                onPress={() => setSelected(def.skillId)}
+                x={originX + pos.x - NODE_DIAMETER / 2}
+                y={originY + pos.y - NODE_DIAMETER / 2}
+              />
+            );
+          })}
+        </Animated.View>
+      </View>
+
       {selectedDef ? (
         <View className="px-6 py-4 border-t border-slate-800 bg-slate-900 gap-2">
           <Text className="text-sm font-semibold text-slate-100">
@@ -191,10 +308,12 @@ export default function SkillTreeTab() {
                 : !selectedPrereqMet
                   ? 'Prerequisite not met'
                   : !canAfford
-                    ? 'Need a skill point'
-                    : selectedLevel === 0
-                      ? 'Unlock · 1 point'
-                      : 'Upgrade · 1 point'}
+                    ? `Need ${selectedCost} skill point${selectedCost === 1 ? '' : 's'}`
+                    : `${selectedLevel === 0 ? 'Unlock' : 'Upgrade'} · ${
+                        selectedCost === 0
+                          ? 'free'
+                          : `${selectedCost} point${selectedCost === 1 ? '' : 's'}`
+                      }`}
             </Text>
           </Pressable>
         </View>
@@ -208,11 +327,15 @@ function SkillNode({
   level,
   selected,
   onPress,
+  x,
+  y,
 }: {
   def: SkillDef;
   level: number;
   selected: boolean;
   onPress: () => void;
+  x: number;
+  y: number;
 }) {
   const unlocked = level > 0;
   const borderClass = selected
@@ -221,57 +344,42 @@ function SkillNode({
       ? 'border-emerald-500'
       : 'border-slate-700';
   const bgClass = unlocked ? 'bg-slate-900' : 'bg-slate-950';
+  const glow = unlocked
+    ? {
+        shadowColor: '#10b981',
+        shadowOpacity: 0.6,
+        shadowRadius: 14,
+        shadowOffset: { width: 0, height: 0 },
+        elevation: 6,
+      }
+    : null;
   return (
     <Pressable
       onPress={onPress}
       style={{
         position: 'absolute',
-        left: def.positionX + CANVAS_PADDING,
-        top: def.positionY + CANVAS_PADDING,
-        width: NODE_WIDTH,
-        height: NODE_HEIGHT,
+        left: x,
+        top: y,
+        width: NODE_DIAMETER,
+        height: NODE_DIAMETER,
+        borderRadius: NODE_DIAMETER / 2,
+        ...(glow ?? {}),
       }}
-      className={`rounded-xl border-2 p-3 ${borderClass} ${bgClass}`}
+      className={`items-center justify-center border-2 px-2 ${borderClass} ${bgClass}`}
     >
       <Text
-        className="text-xs font-semibold text-slate-100"
-        numberOfLines={2}
+        className="text-[10px] font-semibold text-slate-100 text-center leading-tight"
+        numberOfLines={3}
       >
         {def.name}
       </Text>
-      <View className="mt-auto">
-        <Text className="text-[11px] text-slate-400">
-          {unlocked ? `Lv ${level} / ${def.maxLevel}` : 'Locked'}
-        </Text>
-      </View>
+      {unlocked ? (
+        <View className="mt-1 rounded-full bg-emerald-500/20 px-2 py-0.5">
+          <Text className="text-[10px] text-emerald-300">Lv {level}</Text>
+        </View>
+      ) : (
+        <Text className="text-[9px] text-slate-500 mt-1">Locked</Text>
+      )}
     </Pressable>
-  );
-}
-
-function Connector({
-  from,
-  to,
-}: {
-  from: { x: number; y: number };
-  to: { x: number; y: number };
-}) {
-  const dx = to.x - from.x;
-  const dy = to.y - from.y;
-  const length = Math.sqrt(dx * dx + dy * dy);
-  const angle = Math.atan2(dy, dx) * (180 / Math.PI);
-  const midX = (from.x + to.x) / 2;
-  const midY = (from.y + to.y) / 2;
-  return (
-    <View
-      style={{
-        position: 'absolute',
-        left: midX - length / 2,
-        top: midY - 1,
-        width: length,
-        height: 2,
-        backgroundColor: '#334155',
-        transform: [{ rotate: `${angle}deg` }],
-      }}
-    />
   );
 }

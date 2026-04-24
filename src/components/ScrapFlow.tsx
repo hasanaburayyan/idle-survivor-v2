@@ -7,9 +7,8 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { Animated, Easing, StyleSheet, View } from 'react-native';
+import { Animated, Easing, StyleSheet, Text, View } from 'react-native';
 import { decomposeBurst, tierScale } from '../lib/scavenge';
-import ScrapIcon from './ScrapIcon';
 
 const DISPERSE_MS = 180;
 const ARRIVE_MS = 520;
@@ -21,6 +20,7 @@ const ICON_SIZE = 16;
 interface Particle {
   id: number;
   power: number;
+  icon: string;
   startX: number;
   startY: number;
   dispersedX: number;
@@ -29,9 +29,19 @@ interface Particle {
   targetY: number;
 }
 
+interface CounterEntry {
+  ref: View | null;
+  icon: string;
+}
+
 interface ScrapFlowContextValue {
-  setCounterRef: (ref: View | null) => void;
-  spawnBurst: (fromRef: View | null, amount: bigint) => void;
+  setCounterRef: (resourceId: string, ref: View | null, icon: string) => void;
+  spawnBurst: (
+    fromRef: View | null,
+    resourceId: string,
+    amount: bigint
+  ) => void;
+  spawnReturnBurst: (resourceId: string, amount: bigint) => void;
 }
 
 const ScrapFlowContext = createContext<ScrapFlowContextValue | null>(null);
@@ -46,19 +56,29 @@ export function useScrapFlow() {
 
 export function ScrapFlowProvider({ children }: { children: ReactNode }) {
   const [particles, setParticles] = useState<Particle[]>([]);
-  const counterRef = useRef<View | null>(null);
+  const counters = useRef<Map<string, CounterEntry>>(new Map());
   const nextId = useRef(0);
 
-  const setCounterRef = useCallback((ref: View | null) => {
-    counterRef.current = ref;
-  }, []);
+  const setCounterRef = useCallback(
+    (resourceId: string, ref: View | null, icon: string) => {
+      if (ref === null) {
+        counters.current.delete(resourceId);
+      } else {
+        counters.current.set(resourceId, { ref, icon });
+      }
+    },
+    []
+  );
 
   const spawnBurst = useCallback(
-    (fromRef: View | null, amount: bigint) => {
-      const counter = counterRef.current;
-      if (!fromRef || !counter || amount <= 0n) return;
+    (fromRef: View | null, resourceId: string, amount: bigint) => {
+      if (!fromRef || amount <= 0n) return;
+      const entry = counters.current.get(resourceId);
+      if (!entry || !entry.ref) return;
+      const target = entry.ref;
+      const icon = entry.icon;
       fromRef.measureInWindow((fx, fy, fw, fh) => {
-        counter.measureInWindow((cx, cy, cw, ch) => {
+        target.measureInWindow((cx, cy, cw, ch) => {
           const startX = fx + fw / 2;
           const startY = fy + fh / 2;
           const targetX = cx + cw / 2;
@@ -73,6 +93,7 @@ export function ScrapFlowProvider({ children }: { children: ReactNode }) {
               spawned.push({
                 id: nextId.current++,
                 power: tier.power,
+                icon,
                 startX,
                 startY,
                 dispersedX: startX + Math.cos(angle) * distance,
@@ -91,11 +112,24 @@ export function ScrapFlowProvider({ children }: { children: ReactNode }) {
     []
   );
 
+  const spawnReturnBurst = useCallback(
+    (resourceId: string, amount: bigint) => {
+      const entry = counters.current.get(resourceId);
+      if (!entry || !entry.ref) return;
+      spawnBurst(entry.ref, resourceId, amount);
+    },
+    [spawnBurst]
+  );
+
   const retire = useCallback((id: number) => {
     setParticles(prev => prev.filter(p => p.id !== id));
   }, []);
 
-  const value: ScrapFlowContextValue = { setCounterRef, spawnBurst };
+  const value: ScrapFlowContextValue = {
+    setCounterRef,
+    spawnBurst,
+    spawnReturnBurst,
+  };
 
   return (
     <View style={{ flex: 1 }}>
@@ -176,7 +210,7 @@ function ScrapParticle({
         transform: [{ translateX: dx }, { translateY: dy }, { scale }],
       }}
     >
-      <ScrapIcon size={ICON_SIZE} />
+      <Text style={{ fontSize: ICON_SIZE }}>{particle.icon}</Text>
     </Animated.View>
   );
 }

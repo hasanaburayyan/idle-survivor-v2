@@ -35,39 +35,94 @@ import {
 
 // Import all reducer arg schemas
 import AcceptInvitationReducer from "./accept_invitation_reducer";
+import AdvanceBuildReducer from "./advance_build_reducer";
+import CheatAddLevelReducer from "./cheat_add_level_reducer";
+import CheatAddScrapReducer from "./cheat_add_scrap_reducer";
+import ClearSlotReducer from "./clear_slot_reducer";
 import CreateGroupReducer from "./create_group_reducer";
 import DeclineInvitationReducer from "./decline_invitation_reducer";
 import InviteToGroupReducer from "./invite_to_group_reducer";
 import LeaveGroupReducer from "./leave_group_reducer";
 import LoginReducer from "./login_reducer";
 import LogoutReducer from "./logout_reducer";
-import ScavengeReducer from "./scavenge_reducer";
+import ScavengeActivityReducer from "./scavenge_activity_reducer";
+import SendChatMessageReducer from "./send_chat_message_reducer";
 import SignupReducer from "./signup_reducer";
+import SlotActivityReducer from "./slot_activity_reducer";
+import TravelToReducer from "./travel_to_reducer";
+import UpgradeScavengeActivityReducer from "./upgrade_scavenge_activity_reducer";
 import UpgradeSkillReducer from "./upgrade_skill_reducer";
+import UpgradeStructureReducer from "./upgrade_structure_reducer";
 
 // Import all procedure arg schemas
 
 // Import all table schema definitions
+import ActivityCostRow from "./activity_cost_table";
+import ActivityDefinitionRow from "./activity_definition_table";
 import GroupRow from "./group_table";
 import GroupContributionEventRow from "./group_contribution_event_table";
 import GroupInvitationRow from "./group_invitation_table";
 import GroupMemberRow from "./group_member_table";
+import LocationDefinitionRow from "./location_definition_table";
+import MyActivityStateRow from "./my_activity_state_table";
+import MyAutomationEventsRow from "./my_automation_events_table";
+import MyGlobalChatRow from "./my_global_chat_table";
 import MyGroupRow from "./my_group_table";
 import MyGroupContributionsRow from "./my_group_contributions_table";
 import MyGroupMemberStatesRow from "./my_group_member_states_table";
 import MyGroupMembersRow from "./my_group_members_table";
 import MyGroupMembershipRow from "./my_group_membership_table";
 import MyInvitationsRow from "./my_invitations_table";
+import MyPartyChatRow from "./my_party_chat_table";
 import MyPlayerStateRow from "./my_player_state_table";
+import MyResourcesRow from "./my_resources_table";
 import MySessionRow from "./my_session_table";
+import MyShelterActivitiesRow from "./my_shelter_activities_table";
 import MySkillsRow from "./my_skills_table";
+import MyStructureUpgradesRow from "./my_structure_upgrades_table";
+import MyStructuresRow from "./my_structures_table";
+import MyTravelableLocationsRow from "./my_travelable_locations_table";
+import MyVisibleActivitiesRow from "./my_visible_activities_table";
+import MyWhispersRow from "./my_whispers_table";
+import ResourceDefinitionRow from "./resource_definition_table";
 import SkillDefinitionRow from "./skill_definition_table";
+import SkillPrerequisiteRow from "./skill_prerequisite_table";
+import StructureDefinitionRow from "./structure_definition_table";
+import StructureUpgradeDefinitionRow from "./structure_upgrade_definition_table";
 import UsernameDirectoryRow from "./username_directory_table";
 
 /** Type-only namespace exports for generated type groups. */
 
 /** The schema information for all tables in this module. This is defined the same was as the tables would have been defined in the server. */
 const tablesSchema = __schema({
+  activityCost: __table({
+    name: 'activity_cost',
+    indexes: [
+      { accessor: 'activity_cost_activity', name: 'activity_cost_activity_id_idx_btree', algorithm: 'btree', columns: [
+        'activityId',
+      ] },
+      { accessor: 'id', name: 'activity_cost_id_idx_btree', algorithm: 'btree', columns: [
+        'id',
+      ] },
+    ],
+    constraints: [
+      { name: 'activity_cost_id_key', constraint: 'unique', columns: ['id'] },
+    ],
+  }, ActivityCostRow),
+  activityDefinition: __table({
+    name: 'activity_definition',
+    indexes: [
+      { accessor: 'activityId', name: 'activity_definition_activity_id_idx_btree', algorithm: 'btree', columns: [
+        'activityId',
+      ] },
+      { accessor: 'activity_definition_location', name: 'activity_definition_location_key_idx_btree', algorithm: 'btree', columns: [
+        'locationKey',
+      ] },
+    ],
+    constraints: [
+      { name: 'activity_definition_activity_id_key', constraint: 'unique', columns: ['activityId'] },
+    ],
+  }, ActivityDefinitionRow),
   group: __table({
     name: 'group',
     indexes: [
@@ -127,6 +182,28 @@ const tablesSchema = __schema({
       { name: 'group_member_username_key', constraint: 'unique', columns: ['username'] },
     ],
   }, GroupMemberRow),
+  locationDefinition: __table({
+    name: 'location_definition',
+    indexes: [
+      { accessor: 'locationKey', name: 'location_definition_location_key_idx_btree', algorithm: 'btree', columns: [
+        'locationKey',
+      ] },
+    ],
+    constraints: [
+      { name: 'location_definition_location_key_key', constraint: 'unique', columns: ['locationKey'] },
+    ],
+  }, LocationDefinitionRow),
+  resourceDefinition: __table({
+    name: 'resource_definition',
+    indexes: [
+      { accessor: 'resourceId', name: 'resource_definition_resource_id_idx_btree', algorithm: 'btree', columns: [
+        'resourceId',
+      ] },
+    ],
+    constraints: [
+      { name: 'resource_definition_resource_id_key', constraint: 'unique', columns: ['resourceId'] },
+    ],
+  }, ResourceDefinitionRow),
   skillDefinition: __table({
     name: 'skill_definition',
     indexes: [
@@ -138,6 +215,45 @@ const tablesSchema = __schema({
       { name: 'skill_definition_skill_id_key', constraint: 'unique', columns: ['skillId'] },
     ],
   }, SkillDefinitionRow),
+  skillPrerequisite: __table({
+    name: 'skill_prerequisite',
+    indexes: [
+      { accessor: 'id', name: 'skill_prerequisite_id_idx_btree', algorithm: 'btree', columns: [
+        'id',
+      ] },
+      { accessor: 'skill_prerequisite_skill', name: 'skill_prerequisite_skill_id_idx_btree', algorithm: 'btree', columns: [
+        'skillId',
+      ] },
+    ],
+    constraints: [
+      { name: 'skill_prerequisite_id_key', constraint: 'unique', columns: ['id'] },
+    ],
+  }, SkillPrerequisiteRow),
+  structureDefinition: __table({
+    name: 'structure_definition',
+    indexes: [
+      { accessor: 'structureId', name: 'structure_definition_structure_id_idx_btree', algorithm: 'btree', columns: [
+        'structureId',
+      ] },
+    ],
+    constraints: [
+      { name: 'structure_definition_structure_id_key', constraint: 'unique', columns: ['structureId'] },
+    ],
+  }, StructureDefinitionRow),
+  structureUpgradeDefinition: __table({
+    name: 'structure_upgrade_definition',
+    indexes: [
+      { accessor: 'structure_upgrade_definition_structure', name: 'structure_upgrade_definition_structure_id_idx_btree', algorithm: 'btree', columns: [
+        'structureId',
+      ] },
+      { accessor: 'upgradeId', name: 'structure_upgrade_definition_upgrade_id_idx_btree', algorithm: 'btree', columns: [
+        'upgradeId',
+      ] },
+    ],
+    constraints: [
+      { name: 'structure_upgrade_definition_upgrade_id_key', constraint: 'unique', columns: ['upgradeId'] },
+    ],
+  }, StructureUpgradeDefinitionRow),
   usernameDirectory: __table({
     name: 'username_directory',
     indexes: [
@@ -149,6 +265,27 @@ const tablesSchema = __schema({
       { name: 'username_directory_username_key', constraint: 'unique', columns: ['username'] },
     ],
   }, UsernameDirectoryRow),
+  myActivityState: __table({
+    name: 'my_activity_state',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, MyActivityStateRow),
+  myAutomationEvents: __table({
+    name: 'my_automation_events',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, MyAutomationEventsRow),
+  myGlobalChat: __table({
+    name: 'my_global_chat',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, MyGlobalChatRow),
   myGroup: __table({
     name: 'my_group',
     indexes: [
@@ -191,6 +328,13 @@ const tablesSchema = __schema({
     constraints: [
     ],
   }, MyInvitationsRow),
+  myPartyChat: __table({
+    name: 'my_party_chat',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, MyPartyChatRow),
   myPlayerState: __table({
     name: 'my_player_state',
     indexes: [
@@ -198,6 +342,13 @@ const tablesSchema = __schema({
     constraints: [
     ],
   }, MyPlayerStateRow),
+  myResources: __table({
+    name: 'my_resources',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, MyResourcesRow),
   mySession: __table({
     name: 'my_session',
     indexes: [
@@ -205,6 +356,13 @@ const tablesSchema = __schema({
     constraints: [
     ],
   }, MySessionRow),
+  myShelterActivities: __table({
+    name: 'my_shelter_activities',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, MyShelterActivitiesRow),
   mySkills: __table({
     name: 'my_skills',
     indexes: [
@@ -212,20 +370,64 @@ const tablesSchema = __schema({
     constraints: [
     ],
   }, MySkillsRow),
+  myStructureUpgrades: __table({
+    name: 'my_structure_upgrades',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, MyStructureUpgradesRow),
+  myStructures: __table({
+    name: 'my_structures',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, MyStructuresRow),
+  myTravelableLocations: __table({
+    name: 'my_travelable_locations',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, MyTravelableLocationsRow),
+  myVisibleActivities: __table({
+    name: 'my_visible_activities',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, MyVisibleActivitiesRow),
+  myWhispers: __table({
+    name: 'my_whispers',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, MyWhispersRow),
 });
 
 /** The schema information for all reducers in this module. This is defined the same way as the reducers would have been defined in the server, except the body of the reducer is omitted in code generation. */
 const reducersSchema = __reducers(
   __reducerSchema("accept_invitation", AcceptInvitationReducer),
+  __reducerSchema("advance_build", AdvanceBuildReducer),
+  __reducerSchema("cheat_add_level", CheatAddLevelReducer),
+  __reducerSchema("cheat_add_scrap", CheatAddScrapReducer),
+  __reducerSchema("clear_slot", ClearSlotReducer),
   __reducerSchema("create_group", CreateGroupReducer),
   __reducerSchema("decline_invitation", DeclineInvitationReducer),
   __reducerSchema("invite_to_group", InviteToGroupReducer),
   __reducerSchema("leave_group", LeaveGroupReducer),
   __reducerSchema("login", LoginReducer),
   __reducerSchema("logout", LogoutReducer),
-  __reducerSchema("scavenge", ScavengeReducer),
+  __reducerSchema("scavenge_activity", ScavengeActivityReducer),
+  __reducerSchema("send_chat_message", SendChatMessageReducer),
   __reducerSchema("signup", SignupReducer),
+  __reducerSchema("slot_activity", SlotActivityReducer),
+  __reducerSchema("travel_to", TravelToReducer),
+  __reducerSchema("upgrade_scavenge_activity", UpgradeScavengeActivityReducer),
   __reducerSchema("upgrade_skill", UpgradeSkillReducer),
+  __reducerSchema("upgrade_structure", UpgradeStructureReducer),
 );
 
 /** The schema information for all procedures in this module. This is defined the same way as the procedures would have been defined in the server. */

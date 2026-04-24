@@ -1,17 +1,26 @@
 import { Pressable, Text, View } from 'react-native';
 
-export type TabKey = 'social' | 'skill_tree' | 'wastes';
-
-const TABS: { key: TabKey; label: string }[] = [
-  { key: 'social', label: 'Social' },
-  { key: 'skill_tree', label: 'Skill Tree' },
-  { key: 'wastes', label: 'The Wastes' },
-];
+export type TabKey =
+  | 'activities'
+  | 'travel'
+  | 'shelter'
+  | 'skill_tree'
+  | 'social'
+  | 'chat';
 
 interface Props {
   active: TabKey;
   onChange: (tab: TabKey) => void;
 }
+
+const TABS: { key: TabKey; label: string }[] = [
+  { key: 'activities', label: 'Activities' },
+  { key: 'travel', label: 'Travel' },
+  { key: 'shelter', label: 'Shelter' },
+  { key: 'skill_tree', label: 'Skill Tree' },
+  { key: 'social', label: 'Social' },
+  { key: 'chat', label: 'Chat' },
+];
 
 export default function TabBar({ active, onChange }: Props) {
   return (
@@ -27,9 +36,10 @@ export default function TabBar({ active, onChange }: Props) {
             }`}
           >
             <Text
-              className={`text-sm font-medium ${
+              className={`text-[11px] font-medium ${
                 isActive ? 'text-amber-400' : 'text-slate-400'
               }`}
+              numberOfLines={1}
             >
               {tab.label}
             </Text>

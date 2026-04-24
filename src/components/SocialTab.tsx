@@ -1,10 +1,12 @@
-import { Text, View } from 'react-native';
+import { ScrollView, Text, View } from 'react-native';
+import GroupLobby from './GroupLobby';
 
 const SECTIONS = ['Friends', 'Guild', 'Recent'];
 
 export default function SocialTab() {
   return (
-    <View className="flex-1 px-6 py-6 gap-3">
+    <ScrollView contentContainerStyle={{ padding: 24, gap: 12 }}>
+      <GroupLobby />
       {SECTIONS.map(name => (
         <View
           key={name}
@@ -16,6 +18,6 @@ export default function SocialTab() {
           <Text className="text-sm text-slate-400 mt-1">Coming soon.</Text>
         </View>
       ))}
-    </View>
+    </ScrollView>
   );
 }
