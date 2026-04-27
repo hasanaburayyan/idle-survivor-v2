@@ -11,6 +11,7 @@ import SafePressable from './SafePressable';
 import Svg, { Line } from 'react-native-svg';
 import { useReducer, useTable } from 'spacetimedb/react';
 import { reducers, tables } from '../module_bindings';
+import { SKILL_DEFINITIONS } from '../lib/skillDefinitions';
 
 const NODE_DIAMETER = 96;
 const CANVAS_PADDING = 220;
@@ -49,7 +50,6 @@ function nodePosition(def: SkillDef): { x: number; y: number } {
 }
 
 export default function SkillTreeTab() {
-  const [definitions] = useTable(tables.skillDefinition);
   const [extraPrereqs] = useTable(tables.skillPrerequisite);
   const [mySkills] = useTable(tables.mySkills);
   const [playerStates] = useTable(tables.myPlayerState);
@@ -78,8 +78,8 @@ export default function SkillTreeTab() {
 
   const sorted = useMemo(
     () =>
-      [...definitions].sort((a, b) => a.sortOrder - b.sortOrder) as SkillDef[],
-    [definitions]
+      [...SKILL_DEFINITIONS].sort((a, b) => a.sortOrder - b.sortOrder) as SkillDef[],
+    []
   );
 
   const allPrereqsMet = (def: SkillDef): boolean => {
@@ -230,7 +230,7 @@ export default function SkillTreeTab() {
     }
   };
 
-  if (definitions.length === 0) {
+  if (SKILL_DEFINITIONS.length === 0) {
     return (
       <View className="flex-1 items-center justify-center px-6">
         <Text className="text-sm text-slate-500">Loading skill tree…</Text>
