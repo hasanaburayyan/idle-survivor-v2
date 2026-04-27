@@ -6,6 +6,7 @@ export type TabKey =
   | 'shelter'
   | 'skill_tree'
   | 'social'
+  | 'minigames'
   | 'chat';
 
 interface Props {
@@ -19,6 +20,7 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: 'shelter', label: 'Shelter' },
   { key: 'skill_tree', label: 'Skill Tree' },
   { key: 'social', label: 'Social' },
+  { key: 'minigames', label: 'Minigames' },
   { key: 'chat', label: 'Chat' },
 ];
 

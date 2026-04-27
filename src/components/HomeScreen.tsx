@@ -12,6 +12,8 @@ import ShelterTab from './ShelterTab';
 import SkillTreeTab from './SkillTreeTab';
 import SocialTab from './SocialTab';
 import ChatTab from './ChatTab';
+import MinigamesTab from './MinigamesTab';
+import MinigameModal from './minigames/MinigameModal';
 import { ScrapFlowProvider } from './ScrapFlow';
 import AutomationFeedback from './AutomationFeedback';
 import ResourceStrip from './ResourceStrip';
@@ -123,11 +125,13 @@ function HomeScreenInner({ username }: HomeScreenProps) {
         {tab === 'shelter' ? <ShelterTab /> : null}
         {tab === 'skill_tree' ? <SkillTreeTab /> : null}
         {tab === 'social' ? <SocialTab /> : null}
+        {tab === 'minigames' ? <MinigamesTab /> : null}
         {tab === 'chat' ? <ChatTab username={username} /> : null}
       </View>
 
       <TabBar active={tab} onChange={setTab} />
       <GroupPanel username={username} />
+      <MinigameModal />
     </SafeAreaView>
   );
 }

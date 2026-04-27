@@ -35,20 +35,35 @@ import {
 
 // Import all reducer arg schemas
 import AcceptInvitationReducer from "./accept_invitation_reducer";
+import AcceptMinigameInviteReducer from "./accept_minigame_invite_reducer";
 import AdvanceBuildReducer from "./advance_build_reducer";
+import CancelMinigameReducer from "./cancel_minigame_reducer";
+import CdAttackReducer from "./cd_attack_reducer";
+import CdEndTurnReducer from "./cd_end_turn_reducer";
+import CdMulliganReducer from "./cd_mulligan_reducer";
+import CdPlayCardReducer from "./cd_play_card_reducer";
+import CfPickReducer from "./cf_pick_reducer";
+import CfRevealReducer from "./cf_reveal_reducer";
 import CheatAddLevelReducer from "./cheat_add_level_reducer";
 import CheatAddScrapReducer from "./cheat_add_scrap_reducer";
 import ClearSlotReducer from "./clear_slot_reducer";
 import CreateGroupReducer from "./create_group_reducer";
+import CreateMinigameReducer from "./create_minigame_reducer";
 import DeclineInvitationReducer from "./decline_invitation_reducer";
+import DeclineMinigameInviteReducer from "./decline_minigame_invite_reducer";
 import InviteToGroupReducer from "./invite_to_group_reducer";
+import InviteToMinigameReducer from "./invite_to_minigame_reducer";
 import LeaveGroupReducer from "./leave_group_reducer";
+import LeaveMinigameReducer from "./leave_minigame_reducer";
 import LoginReducer from "./login_reducer";
 import LogoutReducer from "./logout_reducer";
+import RtTapReducer from "./rt_tap_reducer";
 import ScavengeActivityReducer from "./scavenge_activity_reducer";
 import SendChatMessageReducer from "./send_chat_message_reducer";
+import SetMinigameReadyReducer from "./set_minigame_ready_reducer";
 import SignupReducer from "./signup_reducer";
 import SlotActivityReducer from "./slot_activity_reducer";
+import StartMinigameReducer from "./start_minigame_reducer";
 import TravelToReducer from "./travel_to_reducer";
 import UpgradeScavengeActivityReducer from "./upgrade_scavenge_activity_reducer";
 import UpgradeSkillReducer from "./upgrade_skill_reducer";
@@ -59,11 +74,21 @@ import UpgradeStructureReducer from "./upgrade_structure_reducer";
 // Import all table schema definitions
 import ActivityCostRow from "./activity_cost_table";
 import ActivityDefinitionRow from "./activity_definition_table";
+import CardDefinitionRow from "./card_definition_table";
+import CardDuelBoardRow from "./card_duel_board_table";
+import CardDuelCardOnBoardRow from "./card_duel_card_on_board_table";
+import CardDuelPlayerRow from "./card_duel_player_table";
+import CoinFlipBetRow from "./coin_flip_bet_table";
+import CoinFlipGameRow from "./coin_flip_game_table";
 import GroupRow from "./group_table";
 import GroupContributionEventRow from "./group_contribution_event_table";
 import GroupInvitationRow from "./group_invitation_table";
 import GroupMemberRow from "./group_member_table";
 import LocationDefinitionRow from "./location_definition_table";
+import MinigameInviteRow from "./minigame_invite_table";
+import MinigameMemberRow from "./minigame_member_table";
+import MinigameResultRow from "./minigame_result_table";
+import MinigameSessionRow from "./minigame_session_table";
 import MyActivityStateRow from "./my_activity_state_table";
 import MyAutomationEventsRow from "./my_automation_events_table";
 import MyGlobalChatRow from "./my_global_chat_table";
@@ -73,6 +98,9 @@ import MyGroupMemberStatesRow from "./my_group_member_states_table";
 import MyGroupMembersRow from "./my_group_members_table";
 import MyGroupMembershipRow from "./my_group_membership_table";
 import MyInvitationsRow from "./my_invitations_table";
+import MyMinigameInvitesRow from "./my_minigame_invites_table";
+import MyMinigameMemberRow from "./my_minigame_member_table";
+import MyMinigamePrivateStateRow from "./my_minigame_private_state_table";
 import MyPartyChatRow from "./my_party_chat_table";
 import MyPlayerStateRow from "./my_player_state_table";
 import MyResourcesRow from "./my_resources_table";
@@ -85,6 +113,9 @@ import MyTravelableLocationsRow from "./my_travelable_locations_table";
 import MyVisibleActivitiesRow from "./my_visible_activities_table";
 import MyWhispersRow from "./my_whispers_table";
 import ResourceDefinitionRow from "./resource_definition_table";
+import RhythmTapGameRow from "./rhythm_tap_game_table";
+import RhythmTapNoteRow from "./rhythm_tap_note_table";
+import RhythmTapScoreRow from "./rhythm_tap_score_table";
 import SkillDefinitionRow from "./skill_definition_table";
 import SkillPrerequisiteRow from "./skill_prerequisite_table";
 import StructureDefinitionRow from "./structure_definition_table";
@@ -123,6 +154,81 @@ const tablesSchema = __schema({
       { name: 'activity_definition_activity_id_key', constraint: 'unique', columns: ['activityId'] },
     ],
   }, ActivityDefinitionRow),
+  cardDefinition: __table({
+    name: 'card_definition',
+    indexes: [
+      { accessor: 'cardDefId', name: 'card_definition_card_def_id_idx_btree', algorithm: 'btree', columns: [
+        'cardDefId',
+      ] },
+    ],
+    constraints: [
+      { name: 'card_definition_card_def_id_key', constraint: 'unique', columns: ['cardDefId'] },
+    ],
+  }, CardDefinitionRow),
+  cardDuelBoard: __table({
+    name: 'card_duel_board',
+    indexes: [
+      { accessor: 'sessionId', name: 'card_duel_board_session_id_idx_btree', algorithm: 'btree', columns: [
+        'sessionId',
+      ] },
+    ],
+    constraints: [
+      { name: 'card_duel_board_session_id_key', constraint: 'unique', columns: ['sessionId'] },
+    ],
+  }, CardDuelBoardRow),
+  cardDuelCardOnBoard: __table({
+    name: 'card_duel_card_on_board',
+    indexes: [
+      { accessor: 'id', name: 'card_duel_card_on_board_id_idx_btree', algorithm: 'btree', columns: [
+        'id',
+      ] },
+      { accessor: 'card_duel_card_on_board_session_id', name: 'card_duel_card_on_board_session_id_idx_btree', algorithm: 'btree', columns: [
+        'sessionId',
+      ] },
+    ],
+    constraints: [
+      { name: 'card_duel_card_on_board_id_key', constraint: 'unique', columns: ['id'] },
+    ],
+  }, CardDuelCardOnBoardRow),
+  cardDuelPlayer: __table({
+    name: 'card_duel_player',
+    indexes: [
+      { accessor: 'id', name: 'card_duel_player_id_idx_btree', algorithm: 'btree', columns: [
+        'id',
+      ] },
+      { accessor: 'card_duel_player_session_id', name: 'card_duel_player_session_id_idx_btree', algorithm: 'btree', columns: [
+        'sessionId',
+      ] },
+    ],
+    constraints: [
+      { name: 'card_duel_player_id_key', constraint: 'unique', columns: ['id'] },
+    ],
+  }, CardDuelPlayerRow),
+  coinFlipBet: __table({
+    name: 'coin_flip_bet',
+    indexes: [
+      { accessor: 'id', name: 'coin_flip_bet_id_idx_btree', algorithm: 'btree', columns: [
+        'id',
+      ] },
+      { accessor: 'coin_flip_bet_session_id', name: 'coin_flip_bet_session_id_idx_btree', algorithm: 'btree', columns: [
+        'sessionId',
+      ] },
+    ],
+    constraints: [
+      { name: 'coin_flip_bet_id_key', constraint: 'unique', columns: ['id'] },
+    ],
+  }, CoinFlipBetRow),
+  coinFlipGame: __table({
+    name: 'coin_flip_game',
+    indexes: [
+      { accessor: 'sessionId', name: 'coin_flip_game_session_id_idx_btree', algorithm: 'btree', columns: [
+        'sessionId',
+      ] },
+    ],
+    constraints: [
+      { name: 'coin_flip_game_session_id_key', constraint: 'unique', columns: ['sessionId'] },
+    ],
+  }, CoinFlipGameRow),
   group: __table({
     name: 'group',
     indexes: [
@@ -193,6 +299,65 @@ const tablesSchema = __schema({
       { name: 'location_definition_location_key_key', constraint: 'unique', columns: ['locationKey'] },
     ],
   }, LocationDefinitionRow),
+  minigameInvite: __table({
+    name: 'minigame_invite',
+    indexes: [
+      { accessor: 'inviteId', name: 'minigame_invite_invite_id_idx_btree', algorithm: 'btree', columns: [
+        'inviteId',
+      ] },
+      { accessor: 'minigame_invite_session_id', name: 'minigame_invite_session_id_idx_btree', algorithm: 'btree', columns: [
+        'sessionId',
+      ] },
+      { accessor: 'minigame_invite_to_username', name: 'minigame_invite_to_username_idx_btree', algorithm: 'btree', columns: [
+        'toUsername',
+      ] },
+    ],
+    constraints: [
+      { name: 'minigame_invite_invite_id_key', constraint: 'unique', columns: ['inviteId'] },
+    ],
+  }, MinigameInviteRow),
+  minigameMember: __table({
+    name: 'minigame_member',
+    indexes: [
+      { accessor: 'minigame_member_session_id', name: 'minigame_member_session_id_idx_btree', algorithm: 'btree', columns: [
+        'sessionId',
+      ] },
+      { accessor: 'username', name: 'minigame_member_username_idx_btree', algorithm: 'btree', columns: [
+        'username',
+      ] },
+    ],
+    constraints: [
+      { name: 'minigame_member_username_key', constraint: 'unique', columns: ['username'] },
+    ],
+  }, MinigameMemberRow),
+  minigameResult: __table({
+    name: 'minigame_result',
+    indexes: [
+      { accessor: 'id', name: 'minigame_result_id_idx_btree', algorithm: 'btree', columns: [
+        'id',
+      ] },
+      { accessor: 'minigame_result_session_id', name: 'minigame_result_session_id_idx_btree', algorithm: 'btree', columns: [
+        'sessionId',
+      ] },
+      { accessor: 'minigame_result_username', name: 'minigame_result_username_idx_btree', algorithm: 'btree', columns: [
+        'username',
+      ] },
+    ],
+    constraints: [
+      { name: 'minigame_result_id_key', constraint: 'unique', columns: ['id'] },
+    ],
+  }, MinigameResultRow),
+  minigameSession: __table({
+    name: 'minigame_session',
+    indexes: [
+      { accessor: 'id', name: 'minigame_session_id_idx_btree', algorithm: 'btree', columns: [
+        'id',
+      ] },
+    ],
+    constraints: [
+      { name: 'minigame_session_id_key', constraint: 'unique', columns: ['id'] },
+    ],
+  }, MinigameSessionRow),
   resourceDefinition: __table({
     name: 'resource_definition',
     indexes: [
@@ -204,6 +369,45 @@ const tablesSchema = __schema({
       { name: 'resource_definition_resource_id_key', constraint: 'unique', columns: ['resourceId'] },
     ],
   }, ResourceDefinitionRow),
+  rhythmTapGame: __table({
+    name: 'rhythm_tap_game',
+    indexes: [
+      { accessor: 'sessionId', name: 'rhythm_tap_game_session_id_idx_btree', algorithm: 'btree', columns: [
+        'sessionId',
+      ] },
+    ],
+    constraints: [
+      { name: 'rhythm_tap_game_session_id_key', constraint: 'unique', columns: ['sessionId'] },
+    ],
+  }, RhythmTapGameRow),
+  rhythmTapNote: __table({
+    name: 'rhythm_tap_note',
+    indexes: [
+      { accessor: 'id', name: 'rhythm_tap_note_id_idx_btree', algorithm: 'btree', columns: [
+        'id',
+      ] },
+      { accessor: 'rhythm_tap_note_session_id', name: 'rhythm_tap_note_session_id_idx_btree', algorithm: 'btree', columns: [
+        'sessionId',
+      ] },
+    ],
+    constraints: [
+      { name: 'rhythm_tap_note_id_key', constraint: 'unique', columns: ['id'] },
+    ],
+  }, RhythmTapNoteRow),
+  rhythmTapScore: __table({
+    name: 'rhythm_tap_score',
+    indexes: [
+      { accessor: 'id', name: 'rhythm_tap_score_id_idx_btree', algorithm: 'btree', columns: [
+        'id',
+      ] },
+      { accessor: 'rhythm_tap_score_session_id', name: 'rhythm_tap_score_session_id_idx_btree', algorithm: 'btree', columns: [
+        'sessionId',
+      ] },
+    ],
+    constraints: [
+      { name: 'rhythm_tap_score_id_key', constraint: 'unique', columns: ['id'] },
+    ],
+  }, RhythmTapScoreRow),
   skillDefinition: __table({
     name: 'skill_definition',
     indexes: [
@@ -328,6 +532,27 @@ const tablesSchema = __schema({
     constraints: [
     ],
   }, MyInvitationsRow),
+  myMinigameInvites: __table({
+    name: 'my_minigame_invites',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, MyMinigameInvitesRow),
+  myMinigameMember: __table({
+    name: 'my_minigame_member',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, MyMinigameMemberRow),
+  myMinigamePrivateState: __table({
+    name: 'my_minigame_private_state',
+    indexes: [
+    ],
+    constraints: [
+    ],
+  }, MyMinigamePrivateStateRow),
   myPartyChat: __table({
     name: 'my_party_chat',
     indexes: [
@@ -410,20 +635,35 @@ const tablesSchema = __schema({
 /** The schema information for all reducers in this module. This is defined the same way as the reducers would have been defined in the server, except the body of the reducer is omitted in code generation. */
 const reducersSchema = __reducers(
   __reducerSchema("accept_invitation", AcceptInvitationReducer),
+  __reducerSchema("accept_minigame_invite", AcceptMinigameInviteReducer),
   __reducerSchema("advance_build", AdvanceBuildReducer),
+  __reducerSchema("cancel_minigame", CancelMinigameReducer),
+  __reducerSchema("cd_attack", CdAttackReducer),
+  __reducerSchema("cd_end_turn", CdEndTurnReducer),
+  __reducerSchema("cd_mulligan", CdMulliganReducer),
+  __reducerSchema("cd_play_card", CdPlayCardReducer),
+  __reducerSchema("cf_pick", CfPickReducer),
+  __reducerSchema("cf_reveal", CfRevealReducer),
   __reducerSchema("cheat_add_level", CheatAddLevelReducer),
   __reducerSchema("cheat_add_scrap", CheatAddScrapReducer),
   __reducerSchema("clear_slot", ClearSlotReducer),
   __reducerSchema("create_group", CreateGroupReducer),
+  __reducerSchema("create_minigame", CreateMinigameReducer),
   __reducerSchema("decline_invitation", DeclineInvitationReducer),
+  __reducerSchema("decline_minigame_invite", DeclineMinigameInviteReducer),
   __reducerSchema("invite_to_group", InviteToGroupReducer),
+  __reducerSchema("invite_to_minigame", InviteToMinigameReducer),
   __reducerSchema("leave_group", LeaveGroupReducer),
+  __reducerSchema("leave_minigame", LeaveMinigameReducer),
   __reducerSchema("login", LoginReducer),
   __reducerSchema("logout", LogoutReducer),
+  __reducerSchema("rt_tap", RtTapReducer),
   __reducerSchema("scavenge_activity", ScavengeActivityReducer),
   __reducerSchema("send_chat_message", SendChatMessageReducer),
+  __reducerSchema("set_minigame_ready", SetMinigameReadyReducer),
   __reducerSchema("signup", SignupReducer),
   __reducerSchema("slot_activity", SlotActivityReducer),
+  __reducerSchema("start_minigame", StartMinigameReducer),
   __reducerSchema("travel_to", TravelToReducer),
   __reducerSchema("upgrade_scavenge_activity", UpgradeScavengeActivityReducer),
   __reducerSchema("upgrade_skill", UpgradeSkillReducer),

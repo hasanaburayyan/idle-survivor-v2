@@ -64,6 +64,46 @@ export const AutomationTick = __t.object("AutomationTick", {
 });
 export type AutomationTick = __Infer<typeof AutomationTick>;
 
+export const CardDefinition = __t.object("CardDefinition", {
+  cardDefId: __t.string(),
+  name: __t.string(),
+  cost: __t.u8(),
+  attack: __t.u8(),
+  health: __t.u8(),
+  effect: __t.string(),
+});
+export type CardDefinition = __Infer<typeof CardDefinition>;
+
+export const CardDuelBoard = __t.object("CardDuelBoard", {
+  sessionId: __t.u64(),
+  activeSeat: __t.u8(),
+  turnNumber: __t.u32(),
+  turnDeadlineMicros: __t.i64(),
+});
+export type CardDuelBoard = __Infer<typeof CardDuelBoard>;
+
+export const CardDuelCardOnBoard = __t.object("CardDuelCardOnBoard", {
+  id: __t.u64(),
+  sessionId: __t.u64(),
+  ownerSeat: __t.u8(),
+  slot: __t.u8(),
+  cardDefId: __t.string(),
+  health: __t.i32(),
+  attack: __t.u8(),
+});
+export type CardDuelCardOnBoard = __Infer<typeof CardDuelCardOnBoard>;
+
+export const CardDuelPlayer = __t.object("CardDuelPlayer", {
+  id: __t.u64(),
+  sessionId: __t.u64(),
+  username: __t.string(),
+  seat: __t.u8(),
+  health: __t.i32(),
+  manaMax: __t.u8(),
+  manaCurrent: __t.u8(),
+});
+export type CardDuelPlayer = __Infer<typeof CardDuelPlayer>;
+
 export const ChatMessage = __t.object("ChatMessage", {
   messageId: __t.u64(),
   channelType: __t.string(),
@@ -73,6 +113,37 @@ export const ChatMessage = __t.object("ChatMessage", {
   createdAt: __t.timestamp(),
 });
 export type ChatMessage = __Infer<typeof ChatMessage>;
+
+export const CoinFlipBet = __t.object("CoinFlipBet", {
+  id: __t.u64(),
+  sessionId: __t.u64(),
+  username: __t.string(),
+  get pick() {
+    return CoinSide;
+  },
+  wager: __t.u64(),
+  payout: __t.u64(),
+});
+export type CoinFlipBet = __Infer<typeof CoinFlipBet>;
+
+export const CoinFlipGame = __t.object("CoinFlipGame", {
+  sessionId: __t.u64(),
+  anteScrap: __t.u64(),
+  roundNumber: __t.u32(),
+  pot: __t.u64(),
+  get result() {
+    return __t.option(CoinSide);
+  },
+  revealedAt: __t.option(__t.timestamp()),
+});
+export type CoinFlipGame = __Infer<typeof CoinFlipGame>;
+
+// The tagged union or sum type for the algebraic type `CoinSide`.
+export const CoinSide = __t.enum("CoinSide", {
+  Heads: __t.unit(),
+  Tails: __t.unit(),
+});
+export type CoinSide = __Infer<typeof CoinSide>;
 
 export const Group = __t.object("Group", {
   groupId: __t.u64(),
@@ -119,6 +190,91 @@ export const LocationDefinition = __t.object("LocationDefinition", {
 });
 export type LocationDefinition = __Infer<typeof LocationDefinition>;
 
+export const MinigameInvite = __t.object("MinigameInvite", {
+  inviteId: __t.u64(),
+  sessionId: __t.u64(),
+  fromUsername: __t.string(),
+  toUsername: __t.string(),
+  createdAt: __t.timestamp(),
+});
+export type MinigameInvite = __Infer<typeof MinigameInvite>;
+
+// The tagged union or sum type for the algebraic type `MinigameKind`.
+export const MinigameKind = __t.enum("MinigameKind", {
+  CoinFlip: __t.unit(),
+  RhythmTap: __t.unit(),
+  CardDuel: __t.unit(),
+});
+export type MinigameKind = __Infer<typeof MinigameKind>;
+
+export const MinigameMember = __t.object("MinigameMember", {
+  username: __t.string(),
+  sessionId: __t.u64(),
+  seatIndex: __t.u8(),
+  ready: __t.bool(),
+  active: __t.bool(),
+  joinedAt: __t.timestamp(),
+});
+export type MinigameMember = __Infer<typeof MinigameMember>;
+
+export const MinigamePrivateState = __t.object("MinigamePrivateState", {
+  id: __t.u64(),
+  sessionId: __t.u64(),
+  username: __t.string(),
+  slot: __t.u8(),
+  data: __t.string(),
+});
+export type MinigamePrivateState = __Infer<typeof MinigamePrivateState>;
+
+export const MinigameResult = __t.object("MinigameResult", {
+  id: __t.u64(),
+  sessionId: __t.u64(),
+  username: __t.string(),
+  get kind() {
+    return MinigameKind;
+  },
+  finalScore: __t.i64(),
+  placement: __t.u8(),
+  rewardsJson: __t.string(),
+  completedAt: __t.timestamp(),
+});
+export type MinigameResult = __Infer<typeof MinigameResult>;
+
+export const MinigameSession = __t.object("MinigameSession", {
+  id: __t.u64(),
+  get kind() {
+    return MinigameKind;
+  },
+  get state() {
+    return MinigameSessionState;
+  },
+  hostUsername: __t.string(),
+  minPlayers: __t.u8(),
+  maxPlayers: __t.u8(),
+  createdAt: __t.timestamp(),
+  startedAt: __t.option(__t.timestamp()),
+  endedAt: __t.option(__t.timestamp()),
+});
+export type MinigameSession = __Infer<typeof MinigameSession>;
+
+// The tagged union or sum type for the algebraic type `MinigameSessionState`.
+export const MinigameSessionState = __t.enum("MinigameSessionState", {
+  Lobby: __t.unit(),
+  InProgress: __t.unit(),
+  Completed: __t.unit(),
+  Cancelled: __t.unit(),
+});
+export type MinigameSessionState = __Infer<typeof MinigameSessionState>;
+
+export const MinigameTick = __t.object("MinigameTick", {
+  scheduledId: __t.u64(),
+  scheduledAt: __t.scheduleAt(),
+  sessionId: __t.u64(),
+  kind: __t.string(),
+  payload: __t.string(),
+});
+export type MinigameTick = __Infer<typeof MinigameTick>;
+
 export const MyActivityState = __t.object("MyActivityState", {});
 export type MyActivityState = __Infer<typeof MyActivityState>;
 
@@ -145,6 +301,15 @@ export type MyGroupMembership = __Infer<typeof MyGroupMembership>;
 
 export const MyInvitations = __t.object("MyInvitations", {});
 export type MyInvitations = __Infer<typeof MyInvitations>;
+
+export const MyMinigameInvites = __t.object("MyMinigameInvites", {});
+export type MyMinigameInvites = __Infer<typeof MyMinigameInvites>;
+
+export const MyMinigameMember = __t.object("MyMinigameMember", {});
+export type MyMinigameMember = __Infer<typeof MyMinigameMember>;
+
+export const MyMinigamePrivateState = __t.object("MyMinigamePrivateState", {});
+export type MyMinigamePrivateState = __Infer<typeof MyMinigamePrivateState>;
 
 export const MyPartyChat = __t.object("MyPartyChat", {});
 export type MyPartyChat = __Infer<typeof MyPartyChat>;
@@ -241,6 +406,33 @@ export const ResourceDefinition = __t.object("ResourceDefinition", {
   sortOrder: __t.u32(),
 });
 export type ResourceDefinition = __Infer<typeof ResourceDefinition>;
+
+export const RhythmTapGame = __t.object("RhythmTapGame", {
+  sessionId: __t.u64(),
+  chartId: __t.string(),
+  durationMs: __t.u32(),
+  startMicros: __t.i64(),
+});
+export type RhythmTapGame = __Infer<typeof RhythmTapGame>;
+
+export const RhythmTapNote = __t.object("RhythmTapNote", {
+  id: __t.u64(),
+  sessionId: __t.u64(),
+  lane: __t.u8(),
+  timeMs: __t.u32(),
+  hitByUsername: __t.option(__t.string()),
+});
+export type RhythmTapNote = __Infer<typeof RhythmTapNote>;
+
+export const RhythmTapScore = __t.object("RhythmTapScore", {
+  id: __t.u64(),
+  sessionId: __t.u64(),
+  username: __t.string(),
+  hits: __t.u32(),
+  misses: __t.u32(),
+  combo: __t.u32(),
+});
+export type RhythmTapScore = __Infer<typeof RhythmTapScore>;
 
 export const Session = __t.object("Session", {
   identity: __t.identity(),
