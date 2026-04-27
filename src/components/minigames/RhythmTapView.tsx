@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
+import SafePressable from '../SafePressable';
 import { useReducer, useTable } from 'spacetimedb/react';
 import { reducers, tables } from '../../module_bindings';
 
@@ -111,12 +112,12 @@ export default function RhythmTapView({ session }: Props) {
                   })}
               </View>
               <View className="h-1 bg-amber-500/60" />
-              <Pressable
+              <SafePressable
                 onPress={() => tapNote(lane)}
                 className="h-20 items-center justify-center bg-slate-950 active:bg-slate-800"
               >
                 <Text className="text-2xl font-bold text-slate-300">▼</Text>
-              </Pressable>
+              </SafePressable>
             </View>
           ))}
         </View>

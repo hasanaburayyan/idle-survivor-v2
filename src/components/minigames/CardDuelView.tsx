@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { ScrollView, Text, View } from 'react-native';
+import SafePressable from '../SafePressable';
 import { useReducer, useTable } from 'spacetimedb/react';
 import { reducers, tables } from '../../module_bindings';
 
@@ -149,7 +150,7 @@ export default function CardDuelView({ session }: Props) {
           const isAttackable =
             myTurn && selectedAttackerId !== null && c !== undefined;
           return (
-            <Pressable
+            <SafePressable
               key={slot}
               onPress={() => c && attackTarget(c.id)}
               disabled={!isAttackable}
@@ -171,21 +172,21 @@ export default function CardDuelView({ session }: Props) {
                   </Text>
                 </View>
               ) : null}
-            </Pressable>
+            </SafePressable>
           );
         })}
       </View>
 
       {/* Direct attack button */}
       {myTurn && selectedAttackerId !== null ? (
-        <Pressable
+        <SafePressable
           onPress={() => attackTarget(0n)}
           className="rounded-md bg-rose-700 py-1 items-center"
         >
           <Text className="text-[11px] font-medium text-slate-100">
             Attack {opponent.username} directly
           </Text>
-        </Pressable>
+        </SafePressable>
       ) : null}
 
       {/* My board */}
@@ -194,7 +195,7 @@ export default function CardDuelView({ session }: Props) {
           const c = myCards.find(card => card.slot === slot);
           const isPlayTarget = myTurn && selectedHandIndex !== null && !c;
           return (
-            <Pressable
+            <SafePressable
               key={slot}
               onPress={() => {
                 if (isPlayTarget) playCard(slot);
@@ -221,7 +222,7 @@ export default function CardDuelView({ session }: Props) {
                   </Text>
                 </View>
               ) : null}
-            </Pressable>
+            </SafePressable>
           );
         })}
       </View>
@@ -236,7 +237,7 @@ export default function CardDuelView({ session }: Props) {
           ✨ {me.manaCurrent}/{me.manaMax}
         </Text>
         <Text className="text-[11px] text-slate-500">🃏 {deckSize}</Text>
-        <Pressable
+        <SafePressable
           onPress={endTurn}
           disabled={!myTurn || busy}
           className={`rounded-md px-3 py-1 ${
@@ -250,7 +251,7 @@ export default function CardDuelView({ session }: Props) {
           >
             End turn
           </Text>
-        </Pressable>
+        </SafePressable>
       </View>
 
       {/* Hand — single row, horizontal scroll */}
@@ -273,7 +274,7 @@ export default function CardDuelView({ session }: Props) {
               const playable = myTurn && me.manaCurrent >= cost;
               const selected = selectedHandIndex === i;
               return (
-                <Pressable
+                <SafePressable
                   key={`${cardDefId}-${i}`}
                   onPress={() =>
                     playable && setSelectedHandIndex(selected ? null : i)
@@ -294,7 +295,7 @@ export default function CardDuelView({ session }: Props) {
                     {cardName(cardDefId)}
                   </Text>
                   <Text className="text-[10px] text-sky-400 mt-1">cost {cost}</Text>
-                </Pressable>
+                </SafePressable>
               );
             })
           )}

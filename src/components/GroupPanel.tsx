@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { ScrollView, Text, TextInput, View } from 'react-native';
+import SafePressable from './SafePressable';
 import { useReducer, useTable } from 'spacetimedb/react';
 import { reducers, tables } from '../module_bindings';
 import { colorToClasses, groupColor } from '../lib/groupColor';
@@ -28,7 +29,7 @@ export default function GroupPanel({ username }: GroupPanelProps) {
   return (
     <View className="px-4 py-2 border-t border-slate-800 bg-slate-950 gap-2">
       <View className="flex-row items-center justify-between">
-        <Pressable
+        <SafePressable
           onPress={() => setExpanded(e => !e)}
           className="flex-row items-center gap-2"
         >
@@ -39,7 +40,7 @@ export default function GroupPanel({ username }: GroupPanelProps) {
             Group {isOwner ? '· Owner' : ''} · {members.length} member
             {members.length === 1 ? '' : 's'}
           </Text>
-        </Pressable>
+        </SafePressable>
         <LeaveGroupButton />
       </View>
       {expanded ? (
@@ -87,7 +88,7 @@ function LeaveGroupButton() {
     }
   };
   return (
-    <Pressable
+    <SafePressable
       onPress={onPress}
       disabled={submitting}
       className="rounded-lg bg-slate-800 px-3 py-1.5"
@@ -95,7 +96,7 @@ function LeaveGroupButton() {
       <Text className="text-xs font-medium text-slate-100">
         {submitting ? 'Leaving…' : 'Leave'}
       </Text>
-    </Pressable>
+    </SafePressable>
   );
 }
 
@@ -131,7 +132,7 @@ function InviteByUsername() {
           className="flex-1 rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-sm text-slate-100"
           placeholderTextColor="#64748b"
         />
-        <Pressable
+        <SafePressable
           onPress={onPress}
           disabled={submitting || !target.trim()}
           className={`rounded-lg px-4 justify-center ${
@@ -145,7 +146,7 @@ function InviteByUsername() {
           >
             Invite
           </Text>
-        </Pressable>
+        </SafePressable>
       </View>
       {error ? <Text className="text-xs text-rose-400">{error}</Text> : null}
     </View>

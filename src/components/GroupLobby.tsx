@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
+import SafePressable from './SafePressable';
 import { useReducer, useTable } from 'spacetimedb/react';
 import { reducers, tables } from '../module_bindings';
 
@@ -70,7 +71,7 @@ function CreateGroupButton() {
     }
   };
   return (
-    <Pressable
+    <SafePressable
       onPress={onPress}
       disabled={submitting}
       className={`rounded-lg py-3 items-center ${
@@ -80,7 +81,7 @@ function CreateGroupButton() {
       <Text className="text-sm font-medium text-slate-950">
         {submitting ? 'Creating…' : 'Create group'}
       </Text>
-    </Pressable>
+    </SafePressable>
   );
 }
 
@@ -122,20 +123,20 @@ function InvitationRow({
         <Text className="font-semibold">{fromUsername}</Text> invited you
       </Text>
       <View className="flex-row gap-2">
-        <Pressable
+        <SafePressable
           onPress={onAccept}
           disabled={busy}
           className="rounded-lg bg-emerald-500 px-3 py-1.5"
         >
           <Text className="text-xs font-medium text-slate-950">Accept</Text>
-        </Pressable>
-        <Pressable
+        </SafePressable>
+        <SafePressable
           onPress={onDecline}
           disabled={busy}
           className="rounded-lg bg-slate-800 px-3 py-1.5"
         >
           <Text className="text-xs font-medium text-slate-100">Decline</Text>
-        </Pressable>
+        </SafePressable>
       </View>
     </View>
   );

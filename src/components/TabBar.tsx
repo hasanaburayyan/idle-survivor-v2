@@ -1,5 +1,6 @@
-import { Pressable, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
 
+import SafePressable from './SafePressable';
 export type TabKey =
   | 'activities'
   | 'travel'
@@ -30,7 +31,7 @@ export default function TabBar({ active, onChange }: Props) {
       {TABS.map(tab => {
         const isActive = tab.key === active;
         return (
-          <Pressable
+          <SafePressable
             key={tab.key}
             onPress={() => onChange(tab.key)}
             className={`flex-1 items-center py-3 ${
@@ -45,7 +46,7 @@ export default function TabBar({ active, onChange }: Props) {
             >
               {tab.label}
             </Text>
-          </Pressable>
+          </SafePressable>
         );
       })}
     </View>

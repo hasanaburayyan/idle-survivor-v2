@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
-import { Pressable, Text, TextInput, View } from 'react-native';
+import { Text, TextInput, View } from 'react-native';
+import SafePressable from './SafePressable';
 import { reducers, tables } from '../module_bindings';
 import { useReducer, useTable } from 'spacetimedb/react';
 import { useAuthUiStore } from '../store/authUiStore';
@@ -134,7 +135,7 @@ export default function SignUpForm() {
       {lastAuthError ? (
         <Text className="text-sm text-rose-400">{lastAuthError}</Text>
       ) : null}
-      <Pressable
+      <SafePressable
         onPress={onSubmit}
         disabled={!canSubmit}
         className={`rounded-lg py-3 items-center ${
@@ -148,7 +149,7 @@ export default function SignUpForm() {
         >
           {submitting ? 'Creating account…' : 'Create account'}
         </Text>
-      </Pressable>
+      </SafePressable>
     </View>
   );
 }

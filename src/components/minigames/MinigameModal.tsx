@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
+import SafePressable from '../SafePressable';
 import { useReducer, useTable } from 'spacetimedb/react';
 import { reducers, tables } from '../../module_bindings';
 import { getDescriptor, type MinigameKindTag } from './registry';
@@ -88,13 +89,13 @@ function DoneButton() {
     finally { setBusy(false); }
   };
   return (
-    <Pressable
+    <SafePressable
       onPress={onPress}
       disabled={busy}
       className="rounded-lg bg-amber-500 px-4 py-2"
     >
       <Text className="text-xs font-medium text-slate-950">Done</Text>
-    </Pressable>
+    </SafePressable>
   );
 }
 
@@ -145,7 +146,7 @@ function InvitesPanel() {
               ) : null}
             </View>
             <View className="flex-row gap-2">
-              <Pressable
+              <SafePressable
                 onPress={() => onAccept(inv.inviteId)}
                 disabled={busy !== null}
                 className="flex-1 rounded-lg bg-emerald-500 py-2 items-center"
@@ -153,14 +154,14 @@ function InvitesPanel() {
                 <Text className="text-xs font-medium text-slate-950">
                   {busy === inv.inviteId ? 'Joining…' : 'Accept'}
                 </Text>
-              </Pressable>
-              <Pressable
+              </SafePressable>
+              <SafePressable
                 onPress={() => onDecline(inv.inviteId)}
                 disabled={busy !== null}
                 className="flex-1 rounded-lg bg-slate-800 py-2 items-center"
               >
                 <Text className="text-xs font-medium text-slate-100">Decline</Text>
-              </Pressable>
+              </SafePressable>
             </View>
           </View>
         );

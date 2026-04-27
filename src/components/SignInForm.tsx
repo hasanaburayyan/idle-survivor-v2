@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Pressable, Text, TextInput, View } from 'react-native';
+import { Text, TextInput, View } from 'react-native';
+import SafePressable from './SafePressable';
 import { reducers } from '../module_bindings';
 import { useReducer } from 'spacetimedb/react';
 import { useAuthUiStore } from '../store/authUiStore';
@@ -61,7 +62,7 @@ export default function SignInForm() {
       {lastAuthError ? (
         <Text className="text-sm text-rose-400">{lastAuthError}</Text>
       ) : null}
-      <Pressable
+      <SafePressable
         onPress={onSubmit}
         disabled={submitting}
         className={`rounded-lg py-3 items-center ${
@@ -71,7 +72,7 @@ export default function SignInForm() {
         <Text className="text-sm font-medium text-slate-950">
           {submitting ? 'Signing in…' : 'Sign in'}
         </Text>
-      </Pressable>
+      </SafePressable>
     </View>
   );
 }

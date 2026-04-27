@@ -1,17 +1,27 @@
 import { useMemo, useRef, useState } from 'react';
 import {
   Animated,
-  PanResponder,
-  Pressable,
+  Platform,
   Text,
   View,
+  type LayoutChangeEvent,
 } from 'react-native';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import SafePressable from './SafePressable';
 import Svg, { Line } from 'react-native-svg';
 import { useReducer, useTable } from 'spacetimedb/react';
 import { reducers, tables } from '../module_bindings';
 
 const NODE_DIAMETER = 96;
 const CANVAS_PADDING = 220;
+const MIN_SCALE = 0.5;
+const MAX_SCALE = 2.0;
+const WHEEL_STEP = 0.1;
+const PAN_MIN_DISTANCE = 10; // px before pan claims the gesture (so node taps still fire)
+
+function clampScale(s: number): number {
+  return Math.max(MIN_SCALE, Math.min(MAX_SCALE, s));
+}
 
 interface SkillDef {
   skillId: string;
@@ -119,31 +129,94 @@ export default function SkillTreeTab() {
   }, [visible]);
 
   const pan = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
+  const scale = useRef(new Animated.Value(1)).current;
   const panOffset = useRef({ x: 0, y: 0 });
-  const panResponder = useMemo(
-    () =>
-      PanResponder.create({
-        onStartShouldSetPanResponder: () => false,
-        onMoveShouldSetPanResponder: (_, g) =>
-          Math.abs(g.dx) + Math.abs(g.dy) > 6,
-        onPanResponderGrant: () => {
-          pan.setOffset({ x: panOffset.current.x, y: panOffset.current.y });
-          pan.setValue({ x: 0, y: 0 });
-        },
-        onPanResponderMove: Animated.event(
-          [null, { dx: pan.x, dy: pan.y }],
-          { useNativeDriver: false }
-        ),
-        onPanResponderRelease: (_, g) => {
-          panOffset.current = {
-            x: panOffset.current.x + g.dx,
-            y: panOffset.current.y + g.dy,
-          };
-          pan.flattenOffset();
-        },
-      }),
-    [pan]
-  );
+  const scaleOffset = useRef(1);
+  const viewport = useRef({ width: 0, height: 0 });
+
+  const onContainerLayout = (e: LayoutChangeEvent) => {
+    viewport.current = {
+      width: e.nativeEvent.layout.width,
+      height: e.nativeEvent.layout.height,
+    };
+  };
+
+  const clampX = (x: number, s: number): number => {
+    const contentW = canvasWidth * s;
+    const vpW = viewport.current.width;
+    if (contentW <= vpW) return (vpW - contentW) / 2;
+    return Math.min(0, Math.max(vpW - contentW, x));
+  };
+  const clampY = (y: number, s: number): number => {
+    const contentH = canvasHeight * s;
+    const vpH = viewport.current.height;
+    if (contentH <= vpH) return (vpH - contentH) / 2;
+    return Math.min(0, Math.max(vpH - contentH, y));
+  };
+
+  const composedGesture = useMemo(() => {
+    const panGesture = Gesture.Pan()
+      .minDistance(PAN_MIN_DISTANCE)
+      .onChange(e => {
+        const nx = clampX(panOffset.current.x + e.translationX, scaleOffset.current);
+        const ny = clampY(panOffset.current.y + e.translationY, scaleOffset.current);
+        pan.setValue({ x: nx, y: ny });
+      })
+      .onEnd(e => {
+        const nx = clampX(panOffset.current.x + e.translationX, scaleOffset.current);
+        const ny = clampY(panOffset.current.y + e.translationY, scaleOffset.current);
+        panOffset.current = { x: nx, y: ny };
+        pan.setValue(panOffset.current);
+      });
+
+    const pinchGesture = Gesture.Pinch()
+      .onChange(e => {
+        const ns = clampScale(scaleOffset.current * e.scale);
+        scale.setValue(ns);
+      })
+      .onEnd(e => {
+        const ns = clampScale(scaleOffset.current * e.scale);
+        scaleOffset.current = ns;
+        scale.setValue(ns);
+        const nx = clampX(panOffset.current.x, ns);
+        const ny = clampY(panOffset.current.y, ns);
+        panOffset.current = { x: nx, y: ny };
+        pan.setValue(panOffset.current);
+      });
+
+    return Gesture.Simultaneous(panGesture, pinchGesture);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pan, scale, canvasWidth, canvasHeight]);
+
+  const resetView = () => {
+    panOffset.current = { x: 0, y: 0 };
+    scaleOffset.current = 1;
+    Animated.parallel([
+      Animated.spring(pan, { toValue: { x: 0, y: 0 }, useNativeDriver: true }),
+      Animated.spring(scale, { toValue: 1, useNativeDriver: true }),
+    ]).start();
+  };
+
+  // Web-only ctrl+wheel zoom. Plain wheel falls through to default (no-op here
+  // since the parent container has overflow: hidden).
+  const wheelProps =
+    Platform.OS === 'web'
+      ? {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          onWheel: (e: any) => {
+            if (!e.ctrlKey) return;
+            e.preventDefault?.();
+            const dir = Math.sign(e.deltaY);
+            const ns = clampScale(scaleOffset.current - dir * WHEEL_STEP);
+            scaleOffset.current = ns;
+            scale.setValue(ns);
+            const nx = clampX(panOffset.current.x, ns);
+            const ny = clampY(panOffset.current.y, ns);
+            panOffset.current = { x: nx, y: ny };
+            pan.setValue(panOffset.current);
+          },
+        }
+      : {};
 
   const onUpgrade = async (skillId: string) => {
     if (busy) return;
@@ -191,16 +264,27 @@ export default function SkillTreeTab() {
 
       <View
         className="flex-1 bg-slate-950"
-        style={{ overflow: 'hidden' }}
-        {...panResponder.panHandlers}
+        style={
+          Platform.OS === 'web'
+            ? // userSelect cast needed — RN ViewStyle doesn't expose it.
+              ({ overflow: 'hidden', userSelect: 'none' } as unknown as object)
+            : { overflow: 'hidden' }
+        }
+        onLayout={onContainerLayout}
+        {...wheelProps}
       >
-        <Animated.View
-          style={{
-            width: canvasWidth,
-            height: canvasHeight,
-            transform: pan.getTranslateTransform(),
-          }}
-        >
+        <GestureDetector gesture={composedGesture}>
+          <Animated.View
+            style={{
+              width: canvasWidth,
+              height: canvasHeight,
+              transform: [
+                { translateX: pan.x },
+                { translateY: pan.y },
+                { scale: scale },
+              ],
+            }}
+          >
           <Svg
             width={canvasWidth}
             height={canvasHeight}
@@ -273,7 +357,15 @@ export default function SkillTreeTab() {
               />
             );
           })}
-        </Animated.View>
+          </Animated.View>
+        </GestureDetector>
+        <SafePressable
+          onPress={resetView}
+          style={{ position: 'absolute', top: 8, right: 8 }}
+          className="rounded-full bg-slate-800/90 border border-slate-700 w-9 h-9 items-center justify-center"
+        >
+          <Text className="text-base text-slate-200">⟲</Text>
+        </SafePressable>
       </View>
 
       {selectedDef ? (
@@ -287,7 +379,7 @@ export default function SkillTreeTab() {
           <Text className="text-xs text-slate-400">
             {selectedDef.description}
           </Text>
-          <Pressable
+          <SafePressable
             disabled={busy || !canAfford || selectedAtMax || !selectedPrereqMet}
             onPress={() => onUpgrade(selectedDef.skillId)}
             className={`rounded-lg py-2.5 items-center mt-1 ${
@@ -315,7 +407,7 @@ export default function SkillTreeTab() {
                           : `${selectedCost} point${selectedCost === 1 ? '' : 's'}`
                       }`}
             </Text>
-          </Pressable>
+          </SafePressable>
         </View>
       ) : null}
     </View>
@@ -354,7 +446,7 @@ function SkillNode({
       }
     : null;
   return (
-    <Pressable
+    <SafePressable
       onPress={onPress}
       style={{
         position: 'absolute',
@@ -380,6 +472,6 @@ function SkillNode({
       ) : (
         <Text className="text-[9px] text-slate-500 mt-1">Locked</Text>
       )}
-    </Pressable>
+    </SafePressable>
   );
 }

@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { ScrollView, Text, View } from 'react-native';
+import SafePressable from './SafePressable';
 import { useReducer, useTable } from 'spacetimedb/react';
 import { reducers, tables } from '../module_bindings';
 import { minigameRegistry, type MinigameKindTag } from './minigames/registry';
@@ -82,7 +83,7 @@ function MinigameCard({
         </Text>
         <Text className="text-xs text-slate-400 mt-1">{description}</Text>
       </View>
-      <Pressable
+      <SafePressable
         onPress={onPress}
         disabled={busy || disabled}
         className={`rounded-lg py-3 items-center ${
@@ -92,7 +93,7 @@ function MinigameCard({
         <Text className="text-sm font-medium text-slate-950">
           {disabled ? 'In minigame…' : busy ? 'Starting…' : 'Play'}
         </Text>
-      </Pressable>
+      </SafePressable>
     </View>
   );
 }

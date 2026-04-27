@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
+import SafePressable from './SafePressable';
 import { reducers, tables } from '../module_bindings';
 import { useReducer, useTable } from 'spacetimedb/react';
 
@@ -145,13 +146,13 @@ export default function StructureCard({
                 Runs every 1s · {100 + yieldBonus}% yield
               </Text>
             </View>
-            <Pressable
+            <SafePressable
               onPress={onClear}
               disabled={busy}
               className="rounded-lg bg-slate-800 px-3 py-1.5"
             >
               <Text className="text-xs font-medium text-slate-100">Clear</Text>
-            </Pressable>
+            </SafePressable>
           </View>
         ) : unlockedActivityIds.size === 0 ? (
           <Text className="text-xs text-slate-500 mt-1">
@@ -163,7 +164,7 @@ export default function StructureCard({
               const a = activityDefs.find(x => x.activityId === actId);
               if (!a) return null;
               return (
-                <Pressable
+                <SafePressable
                   key={actId}
                   onPress={() => onSlot(actId)}
                   disabled={busy}
@@ -172,30 +173,30 @@ export default function StructureCard({
                   <Text className="text-sm font-medium text-slate-950">
                     {a.icon} {a.name}
                   </Text>
-                </Pressable>
+                </SafePressable>
               );
             })}
-            <Pressable
+            <SafePressable
               onPress={() => setPicking(false)}
               className="rounded-lg bg-slate-800 py-2 items-center"
             >
               <Text className="text-sm font-medium text-slate-100">Cancel</Text>
-            </Pressable>
+            </SafePressable>
           </View>
         ) : (
-          <Pressable
+          <SafePressable
             onPress={() => setPicking(true)}
             className="rounded-lg bg-emerald-500 py-2 items-center mt-2"
           >
             <Text className="text-sm font-medium text-slate-950">
               Slot activity
             </Text>
-          </Pressable>
+          </SafePressable>
         )}
       </View>
 
       <View className="flex-row items-center justify-between">
-        <Pressable
+        <SafePressable
           onPress={() => setUpgradesOpen(o => !o)}
           className="flex-row items-center gap-2"
         >
@@ -205,7 +206,7 @@ export default function StructureCard({
           <Text className="text-xs uppercase tracking-widest text-slate-500">
             Upgrades ({upgrades.length})
           </Text>
-        </Pressable>
+        </SafePressable>
         {efficiencyLevel > 0 ? (
           <Text className="text-[11px] text-slate-500">
             Efficiency Lv {efficiencyLevel} · +{yieldBonus}%
@@ -270,7 +271,7 @@ function StructureUpgradeRow({
         </Text>
       </View>
       <Text className="text-xs text-slate-400">{def.description}</Text>
-      <Pressable
+      <SafePressable
         onPress={onPress}
         disabled={busy || atMax || !canAfford}
         className={`rounded-lg py-2 items-center ${
@@ -288,7 +289,7 @@ function StructureUpgradeRow({
               ? `Need ${cost.toString()} scrap`
               : `${level === 0 ? 'Unlock' : 'Upgrade'} · ${cost.toString()} scrap`}
         </Text>
-      </Pressable>
+      </SafePressable>
     </View>
   );
 }

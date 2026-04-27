@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { ScrollView, Text, View } from 'react-native';
+import SafePressable from './SafePressable';
 import { useReducer, useTable } from 'spacetimedb/react';
 import { reducers, tables } from '../module_bindings';
 
@@ -79,7 +80,7 @@ function LocationCard({
           </Text>
         </View>
       </View>
-      <Pressable
+      <SafePressable
         onPress={onTravel}
         disabled={busy || isCurrent}
         className={`rounded-lg py-2 items-center ${
@@ -93,7 +94,7 @@ function LocationCard({
         >
           {isCurrent ? 'You are here' : busy ? 'Traveling…' : 'Travel'}
         </Text>
-      </Pressable>
+      </SafePressable>
     </View>
   );
 }

@@ -1,4 +1,5 @@
-import { KeyboardAvoidingView, Platform, Pressable, Text, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, Text, View } from 'react-native';
+import SafePressable from './SafePressable';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuthUiStore } from '../store/authUiStore';
 import SignInForm from './SignInForm';
@@ -54,7 +55,7 @@ function ModeTab({
   onPress: () => void;
 }) {
   return (
-    <Pressable
+    <SafePressable
       onPress={onPress}
       className={`flex-1 rounded-md py-2 items-center ${
         active ? 'bg-slate-950' : ''
@@ -67,6 +68,6 @@ function ModeTab({
       >
         {label}
       </Text>
-    </Pressable>
+    </SafePressable>
   );
 }

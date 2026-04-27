@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   FlatList,
-  Pressable,
   ScrollView,
   Text,
   TextInput,
   View,
 } from 'react-native';
+import SafePressable from './SafePressable';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useReducer, useTable } from 'spacetimedb/react';
 import { reducers, tables } from '../module_bindings';
@@ -344,7 +344,7 @@ export default function ChatTab({ username }: ChatTabProps) {
           autoCapitalize="none"
           returnKeyType="send"
         />
-        <Pressable
+        <SafePressable
           onPress={onSubmit}
           disabled={isGuild || !input.trim()}
           className={`rounded-lg px-4 py-2 ${
@@ -358,7 +358,7 @@ export default function ChatTab({ username }: ChatTabProps) {
           >
             Send
           </Text>
-        </Pressable>
+        </SafePressable>
       </View>
     </View>
   );
@@ -403,7 +403,7 @@ function ChatTabHeader({
           : undefined
       }
     >
-      <Pressable
+      <SafePressable
         onPress={onSelect}
         className="flex-row items-center pl-3 pr-1.5 py-2 gap-1.5"
       >
@@ -413,10 +413,10 @@ function ChatTabHeader({
         <Text className={`text-xs ${labelClass}`} numberOfLines={1}>
           {tabLabel(id)}
         </Text>
-      </Pressable>
-      <Pressable onPress={onClose} hitSlop={6} className="pr-2.5 py-2">
+      </SafePressable>
+      <SafePressable onPress={onClose} hitSlop={6} className="pr-2.5 py-2">
         <Text className="text-[13px] text-slate-600 leading-none">×</Text>
-      </Pressable>
+      </SafePressable>
     </View>
   );
 }

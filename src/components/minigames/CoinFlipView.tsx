@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Pressable, Text, TextInput, View } from 'react-native';
+import { Text, TextInput, View } from 'react-native';
+import SafePressable from '../SafePressable';
 import { useReducer, useTable } from 'spacetimedb/react';
 import { reducers, tables } from '../../module_bindings';
 
@@ -98,13 +99,13 @@ export default function CoinFlipView({ session }: Props) {
             {sessionBets.length} / {sessionMembers.length} bets in
           </Text>
         </View>
-        <Pressable
+        <SafePressable
           onPress={onLeave}
           disabled={busy}
           className="rounded-lg bg-slate-800 px-3 py-2"
         >
           <Text className="text-xs font-medium text-slate-100">Leave</Text>
-        </Pressable>
+        </SafePressable>
       </View>
 
       {revealed ? (
@@ -124,13 +125,13 @@ export default function CoinFlipView({ session }: Props) {
             {sessionMembers.length - sessionBets.length === 1 ? ' bet' : ' bets'}…
           </Text>
           {sessionBets.length > 0 ? (
-            <Pressable
+            <SafePressable
               onPress={onReveal}
               disabled={busy}
               className="rounded-lg bg-amber-500 py-2 items-center mt-2"
             >
               <Text className="text-xs font-medium text-slate-950">Reveal now</Text>
-            </Pressable>
+            </SafePressable>
           ) : null}
         </View>
       ) : null}
@@ -159,7 +160,7 @@ export default function CoinFlipView({ session }: Props) {
             />
             <View className="flex-row gap-2">
               {[10, 100, 1000].map(n => (
-                <Pressable
+                <SafePressable
                   key={n}
                   onPress={() => setWagerPreset(n)}
                   disabled={BigInt(n) > myScrap}
@@ -168,9 +169,9 @@ export default function CoinFlipView({ session }: Props) {
                   }`}
                 >
                   <Text className="text-xs font-medium text-slate-100">{n}</Text>
-                </Pressable>
+                </SafePressable>
               ))}
-              <Pressable
+              <SafePressable
                 onPress={() => setWagerPreset('max')}
                 disabled={myScrap === 0n}
                 className={`flex-1 rounded-lg py-2 items-center ${
@@ -178,7 +179,7 @@ export default function CoinFlipView({ session }: Props) {
                 }`}
               >
                 <Text className="text-xs font-medium text-slate-100">Max</Text>
-              </Pressable>
+              </SafePressable>
             </View>
             {!canAfford && wagerText.length > 0 ? (
               <Text className="text-[11px] text-rose-400">
@@ -188,7 +189,7 @@ export default function CoinFlipView({ session }: Props) {
           </View>
 
           <View className="flex-row gap-3">
-            <Pressable
+            <SafePressable
               onPress={() => pick('Heads')}
               disabled={busy || !canAfford}
               className={`flex-1 rounded-2xl py-6 items-center ${
@@ -196,8 +197,8 @@ export default function CoinFlipView({ session }: Props) {
               }`}
             >
               <Text className="text-2xl font-bold text-slate-950">Heads</Text>
-            </Pressable>
-            <Pressable
+            </SafePressable>
+            <SafePressable
               onPress={() => pick('Tails')}
               disabled={busy || !canAfford}
               className={`flex-1 rounded-2xl py-6 items-center ${
@@ -205,7 +206,7 @@ export default function CoinFlipView({ session }: Props) {
               }`}
             >
               <Text className="text-2xl font-bold text-slate-950">Tails</Text>
-            </Pressable>
+            </SafePressable>
           </View>
         </View>
       ) : null}

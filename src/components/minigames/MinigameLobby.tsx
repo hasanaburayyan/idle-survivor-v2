@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Pressable, Text, TextInput, View } from 'react-native';
+import { Text, TextInput, View } from 'react-native';
+import SafePressable from '../SafePressable';
 import { useReducer, useTable } from 'spacetimedb/react';
 import { reducers, tables } from '../../module_bindings';
 import { getDescriptor, type MinigameKindTag } from './registry';
@@ -102,7 +103,7 @@ export default function MinigameLobby({ session }: Props) {
       </View>
 
       {!isHost ? (
-        <Pressable
+        <SafePressable
           onPress={toggleReady}
           disabled={busy}
           className={`rounded-2xl py-3 items-center ${
@@ -116,14 +117,14 @@ export default function MinigameLobby({ session }: Props) {
           >
             {me?.ready ? 'Unready' : 'Ready up'}
           </Text>
-        </Pressable>
+        </SafePressable>
       ) : null}
 
       {isHost ? (
         <View className="gap-3">
           <InvitePicker session={session} sessionMembers={sessionMembers} />
           <View className="flex-row gap-3">
-            <Pressable
+            <SafePressable
               onPress={onStart}
               disabled={busy || !allReady || !enoughPlayers}
               className={`flex-1 rounded-2xl py-3 items-center ${
@@ -139,24 +140,24 @@ export default function MinigameLobby({ session }: Props) {
                   ? 'Waiting for ready'
                   : 'Start'}
               </Text>
-            </Pressable>
-            <Pressable
+            </SafePressable>
+            <SafePressable
               onPress={onCancel}
               disabled={busy}
               className="rounded-2xl bg-slate-800 px-5 items-center justify-center"
             >
               <Text className="text-sm font-medium text-slate-100">Cancel</Text>
-            </Pressable>
+            </SafePressable>
           </View>
         </View>
       ) : (
-        <Pressable
+        <SafePressable
           onPress={onLeave}
           disabled={busy}
           className="rounded-2xl bg-slate-800 py-3 items-center"
         >
           <Text className="text-sm font-medium text-slate-100">Leave</Text>
-        </Pressable>
+        </SafePressable>
       )}
     </View>
   );
@@ -211,7 +212,7 @@ function InvitePicker({
         </Text>
       ) : null}
       {candidates.map(gm => (
-        <Pressable
+        <SafePressable
           key={gm.username}
           onPress={() => sendInvite(gm.username)}
           disabled={pending !== null}
@@ -221,7 +222,7 @@ function InvitePicker({
           <Text className="text-xs text-amber-400">
             {pending === gm.username ? 'Inviting…' : 'Invite'}
           </Text>
-        </Pressable>
+        </SafePressable>
       ))}
       {sessionInvites.map(inv => (
         <View
@@ -241,7 +242,7 @@ function InvitePicker({
           autoCapitalize="none"
           className="flex-1 rounded-lg bg-slate-950 border border-slate-800 px-3 py-2 text-sm text-slate-100"
         />
-        <Pressable
+        <SafePressable
           onPress={() => {
             const u = manualUsername.trim();
             if (u.length === 0) return;
@@ -256,7 +257,7 @@ function InvitePicker({
           }`}
         >
           <Text className="text-xs font-medium text-slate-950">Send</Text>
-        </Pressable>
+        </SafePressable>
       </View>
     </View>
   );

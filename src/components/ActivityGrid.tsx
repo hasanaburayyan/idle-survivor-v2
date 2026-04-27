@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState } from 'react';
-import { Animated, Easing, Pressable, Text, View } from 'react-native';
+import { Animated, Easing, Text, View } from 'react-native';
+import SafePressable from './SafePressable';
 import { reducers, tables } from '../module_bindings';
 import { useReducer, useTable } from 'spacetimedb/react';
 import { formatScrap } from '../lib/scavenge';
@@ -165,7 +166,7 @@ function ScavengeCell({
         {def.name}
       </Text>
       <Animated.View style={{ transform: [{ scale: pressAnim }] }}>
-        <Pressable
+        <SafePressable
           ref={r => (buttonRef.current = r)}
           onPress={onScavenge}
           disabled={!canAfford}
@@ -185,7 +186,7 @@ function ScavengeCell({
           }
         >
           <Text className="text-2xl">{def.icon}</Text>
-        </Pressable>
+        </SafePressable>
       </Animated.View>
       {yieldDef ? (
         <Text className="text-[10px] text-slate-400">
@@ -210,7 +211,7 @@ function ScavengeCell({
         </View>
       ) : null}
       {yieldDef ? (
-        <Pressable
+        <SafePressable
           onPress={onUpgrade}
           disabled={!canAffordUpgrade}
           className={`self-stretch rounded py-1.5 items-center ${
@@ -224,7 +225,7 @@ function ScavengeCell({
           >
             Lv {activityLevel} · ⬆ {formatScrap(nextUpgradeCost)} {yieldDef.icon}
           </Text>
-        </Pressable>
+        </SafePressable>
       ) : null}
     </View>
   );
@@ -283,7 +284,7 @@ function BuildProgressCell({
       <Text className="text-[10px] text-slate-500">
         {progress.toString()}/{target.toString()} {scrapIcon}
       </Text>
-      <Pressable
+      <SafePressable
         onPress={onBuild}
         disabled={busy || !canContribute}
         className={`rounded py-2 items-center ${
@@ -299,7 +300,7 @@ function BuildProgressCell({
             ? `Need ${scrapIcon}`
             : `+${thisClick.toString()} ${scrapIcon}`}
         </Text>
-      </Pressable>
+      </SafePressable>
     </View>
   );
 }
@@ -317,9 +318,9 @@ function PlaceholderCell({ def }: { def: ActivityDef }) {
         </Text>
       </View>
       <Text className="text-[10px] text-slate-500 flex-1">Coming soon</Text>
-      <Pressable disabled className="rounded py-2 items-center bg-slate-800">
+      <SafePressable disabled className="rounded py-2 items-center bg-slate-800">
         <Text className="text-[11px] text-slate-500">—</Text>
-      </Pressable>
+      </SafePressable>
     </View>
   );
 }

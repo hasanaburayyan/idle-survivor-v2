@@ -1,6 +1,7 @@
 import './global.css';
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, StatusBar, View } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Identity } from 'spacetimedb';
@@ -53,11 +54,13 @@ export default function App() {
   }
 
   return (
-    <SafeAreaProvider>
-      <StatusBar barStyle="light-content" />
-      <SpacetimeDBProvider connectionBuilder={connectionBuilder}>
-        <Root />
-      </SpacetimeDBProvider>
-    </SafeAreaProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaProvider>
+        <StatusBar barStyle="light-content" />
+        <SpacetimeDBProvider connectionBuilder={connectionBuilder}>
+          <Root />
+        </SpacetimeDBProvider>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }

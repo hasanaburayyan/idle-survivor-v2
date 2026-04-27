@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
+import SafePressable from './SafePressable';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { reducers, tables } from '../module_bindings';
 import { useReducer, useTable } from 'spacetimedb/react';
@@ -61,7 +62,7 @@ function HomeScreenInner({ username }: HomeScreenProps) {
             <Text className="text-xs text-slate-500">
               <Text className="text-slate-300">{username}</Text>
             </Text>
-            <Pressable
+            <SafePressable
               onPress={() => setDevOpen(o => !o)}
               className={`rounded-lg px-2 py-1.5 ${
                 devOpen ? 'bg-fuchsia-600' : 'bg-slate-800'
@@ -74,33 +75,33 @@ function HomeScreenInner({ username }: HomeScreenProps) {
               >
                 ⚡
               </Text>
-            </Pressable>
+            </SafePressable>
             {devOpen ? (
               <>
-                <Pressable
+                <SafePressable
                   onPress={() => cheatLevel().catch(() => {})}
                   className="rounded-lg bg-fuchsia-600 px-2 py-1.5"
                 >
                   <Text className="text-[11px] font-medium text-slate-950">
                     +Lv
                   </Text>
-                </Pressable>
-                <Pressable
+                </SafePressable>
+                <SafePressable
                   onPress={() => cheatScrap().catch(() => {})}
                   className="rounded-lg bg-fuchsia-600 px-2 py-1.5"
                 >
                   <Text className="text-[11px] font-medium text-slate-950">
                     +10K
                   </Text>
-                </Pressable>
+                </SafePressable>
               </>
             ) : null}
-            <Pressable
+            <SafePressable
               onPress={onLogout}
               className="rounded-lg bg-slate-800 px-3 py-1.5"
             >
               <Text className="text-xs font-medium text-slate-100">Log out</Text>
-            </Pressable>
+            </SafePressable>
           </View>
         </View>
         <View className="flex-row items-center gap-2">
