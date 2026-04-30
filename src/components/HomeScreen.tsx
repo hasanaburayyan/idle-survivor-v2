@@ -17,6 +17,7 @@ import MinigamesTab from './MinigamesTab';
 import MinigameModal from './minigames/MinigameModal';
 import { ScrapFlowProvider } from './ScrapFlow';
 import AutomationFeedback from './AutomationFeedback';
+import NotificationBell from './NotificationBell';
 import ResourceStrip from './ResourceStrip';
 
 interface HomeScreenProps {
@@ -62,6 +63,7 @@ function HomeScreenInner({ username }: HomeScreenProps) {
             <Text className="text-xs text-slate-500">
               <Text className="text-slate-300">{username}</Text>
             </Text>
+            <NotificationBell closeSignal={tab} />
             <SafePressable
               onPress={() => setDevOpen(o => !o)}
               className={`rounded-lg px-2 py-1.5 ${

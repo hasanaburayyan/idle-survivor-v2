@@ -1,0 +1,27 @@
+Overview:
+A bell icon lives in the top bar of the player UI at all times. When the player has one or more pending notifications, the bell lights up (color/glow shift) and performs a subtle wiggle animation that loops on a soft cadence (e.g. a quick two-tick wiggle every few seconds, not constant). With zero pending notifications the bell is dimmed and still. Tapping the bell opens a dropdown tray anchored to the icon, listing the player's pending notifications newest-first. Each row shows a short summary of what the notification is about, the time it arrived, and any actions appropriate to its type. Players can delete a row at any time, and for invite-style notifications they can Accept or Decline directly from the row without leaving their current screen.
+
+User Story:
+A player is mid-Scavenge when a friend sends them a group invite. The bell wiggles and lights up. The player taps it, sees "Alice invited you to a group", taps Accept, and is added to the group without ever leaving their current screen or activity. Later, the player opens the bell again, sees an old "Welcome to the wastes" entry, taps the X on the row, and it goes away.
+
+Requirements:
++ Server authoritative. All notifications live in a `notification` table on SpacetimeDB, owned by the recipient. The client never invents a notification — it only reads, marks-read, accepts, declines, or deletes via reducers.
++ The notification table uses a tagged-union `kind` field so new notification types can be added without schema churn. v1 kinds: `groupInvite`, `guildInvite`, `minigameInvite`, `system` (a generic info row used for "welcome", "your group disbanded", etc.).
++ Each notification row carries: id, recipientId (identity, indexed), kind (tagged union with kind-specific payload — e.g. `groupInvite { inviterId, inviterUsername, groupId }`), summary (short string the client renders verbatim), createdAt, readAt (optional timestamp), and an `actionableRefId` (optional u64) the client uses to drive Accept/Decline reducers without re-walking the kind-specific payload.
++ Per CLAUDE.md ("Everything should be a table if possible") notifications are a table, not a derived view of other invite tables. When an invite is created in its source system (group invite, guild invite, minigame invite), that system also inserts a `notification` row pointing at it. When the underlying invite is consumed (accepted/declined/cancelled/expired), the corresponding notification row is deleted by the same reducer. This keeps the tray a single coherent list and lets future kinds participate without the tray needing to know about them.
++ A private view (`my_notifications`) filters by `ctx.sender` so each client only ever subscribes to its own rows.
++ Reducers (v1):
+  - `markNotificationRead({ notificationId })` — stamps `readAt`. Used for the "lit up vs. dim" decision (any unread → lit; all read or empty → dim).
+  - `deleteNotification({ notificationId })` — removes the row. For invite-kind rows, this is dismiss-only and does NOT decline the underlying invite (declines must be explicit so a misclick on the X doesn't reject a friend).
+  - `acceptGroupInvite({ notificationId })` and `declineGroupInvite({ notificationId })` — the v1 must-haves. Each looks up the row, validates kind === groupInvite, performs the group-side mutation, then deletes the notification.
++ The bell's lit/dim state is derived from "any notification row exists where readAt is null". Opening the tray marks all currently-visible rows as read in a single reducer call (`markAllNotificationsRead`) so the wiggle stops once the player has acknowledged them, even if they don't act on each row.
++ The wiggle and glow are pure client-side animations driven off the unread count; no server tick involved.
+
+Extensibility:
++ Adding a new notification type is one new variant in the `kind` tagged union, one client renderer for that variant's row (icon, summary formatting, action buttons), and the source system inserting a `notification` row when its event happens. The tray itself does not change.
++ Future polish (out of scope for v1 but the data model already supports it): grouping multiple notifications of the same kind into a single collapsed row (e.g. "3 minigame invites"), a "Notifications" full-screen tab when the list grows long, push-style toasts for the highest-priority kinds, per-kind mute toggles, and an `expiresAt` field for invites that should auto-clean themselves up via a scheduled reducer.
++ Because Accept/Decline reducers are kind-specific, each new actionable kind ships its own pair (e.g. `acceptGuildInvite`, `acceptMinigameInvite`) rather than a generic "accept" that the tray would have to switch on. This keeps invite logic colocated with the system that owns it.
+
+Placeholders:
++ For v1 only `groupInvite` needs working Accept/Decline. `guildInvite` and `minigameInvite` rows can be inserted by their respective systems and shown in the tray with a "Open <thing>" button that navigates to the existing flow rather than acting inline — they can be upgraded to inline accept/decline once those systems' invite shapes are stable.
++ The `system` kind is the fallback for anything that just needs to inform the player. The first user the game ever sees gets one with summary "Welcome to the wastes." inserted on account creation, so the tray is never empty on day one and the wiggle animation has something to demonstrate.

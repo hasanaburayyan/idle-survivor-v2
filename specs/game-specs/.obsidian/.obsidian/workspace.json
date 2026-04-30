@@ -1,84 +1,37 @@
 {
   "main": {
-    "id": "6ae3abc568b500fc",
+    "id": "587f7989af709412",
     "type": "split",
     "children": [
       {
-        "id": "09fa1cecbbb934aa",
+        "id": "48ac1fc720eb3669",
         "type": "tabs",
         "children": [
           {
-            "id": "027262e93fc4a081",
+            "id": "b67ec88a51001c8c",
             "type": "leaf",
             "state": {
-              "type": "markdown",
-              "state": {
-                "file": "The Travel Tab.md",
-                "mode": "source",
-                "source": false
-              },
+              "type": "empty",
+              "state": {},
               "icon": "lucide-file",
-              "title": "The Travel Tab"
-            }
-          },
-          {
-            "id": "97ef755e98c06a47",
-            "type": "leaf",
-            "state": {
-              "type": "markdown",
-              "state": {
-                "file": "The Workbench.md",
-                "mode": "source",
-                "source": false
-              },
-              "icon": "lucide-file",
-              "title": "The Workbench"
-            }
-          },
-          {
-            "id": "8f952193c358e239",
-            "type": "leaf",
-            "state": {
-              "type": "markdown",
-              "state": {
-                "file": "Multiplayer Sessions.md",
-                "mode": "source",
-                "source": false
-              },
-              "icon": "lucide-file",
-              "title": "Multiplayer Sessions"
-            }
-          },
-          {
-            "id": "bfa7f3f38dca0945",
-            "type": "leaf",
-            "state": {
-              "type": "markdown",
-              "state": {
-                "file": "The Notifications Tray.md",
-                "mode": "source",
-                "source": false
-              },
-              "icon": "lucide-file",
-              "title": "The Notifications Tray"
+              "title": "New tab"
             }
           }
-        ],
-        "currentTab": 3
+        ]
       }
     ],
     "direction": "vertical"
   },
   "left": {
-    "id": "7c12353ae418bb04",
+    "id": "75529f92c1d38c3b",
     "type": "split",
     "children": [
       {
-        "id": "d2136b04cfe76f98",
+        "id": "c70d15a9db3807b7",
         "type": "tabs",
         "children": [
           {
-            "id": "9528dc493e22ed85",
+            "id": "9f3c998b8033d588",
             "type": "leaf",
             "state": {
               "type": "file-explorer",
@@ -91,7 +44,7 @@
             }
           },
           {
-            "id": "6c9fba5ca4175abd",
+            "id": "8e64a217116636e9",
             "type": "leaf",
             "state": {
               "type": "search",
@@ -108,7 +61,7 @@
             }
           },
           {
-            "id": "78b5afc3817d8f86",
+            "id": "bf9c440d78f74740",
             "type": "leaf",
             "state": {
               "type": "bookmarks",
@@ -124,20 +77,19 @@
     "width": 300
   },
   "right": {
-    "id": "254df5ca63002b23",
+    "id": "0c5d245e743f123c",
     "type": "split",
     "children": [
       {
-        "id": "8e82097963543411",
+        "id": "f50bc663cb93d954",
         "type": "tabs",
         "children": [
           {
-            "id": "8b7dbacc2c80c092",
+            "id": "652c718166fff022",
             "type": "leaf",
             "state": {
               "type": "backlink",
               "state": {
-                "file": "The Minigame.md",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -147,25 +99,24 @@
                 "unlinkedCollapsed": true
               },
               "icon": "links-coming-in",
-              "title": "Backlinks for The Minigame"
+              "title": "Backlinks"
             }
           },
           {
-            "id": "76a43522c0549ff8",
+            "id": "0e5b32c3d71f76f9",
             "type": "leaf",
             "state": {
               "type": "outgoing-link",
               "state": {
-                "file": "The Minigame.md",
                 "linksCollapsed": false,
                 "unlinkedCollapsed": true
               },
               "icon": "links-going-out",
-              "title": "Outgoing links from The Minigame"
+              "title": "Outgoing links"
             }
           },
           {
-            "id": "26267882a2be81fb",
+            "id": "5981e37f344552c9",
             "type": "leaf",
             "state": {
               "type": "tag",
@@ -180,7 +131,7 @@
             }
           },
           {
-            "id": "b7b20365539ff3be",
+            "id": "3d6dcffaff17fae9",
             "type": "leaf",
             "state": {
               "type": "all-properties",
@@ -194,18 +145,17 @@
             }
           },
           {
-            "id": "4cef9b5d75f1c389",
+            "id": "48b1922d71ed1006",
             "type": "leaf",
             "state": {
               "type": "outline",
               "state": {
-                "file": "The Minigame.md",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
               },
               "icon": "lucide-list",
-              "title": "Outline of The Minigame"
+              "title": "Outline"
             }
           }
         ]
@@ -226,30 +176,9 @@
       "bases:Create new base": false
     }
   },
-  "active": "bfa7f3f38dca0945",
+  "active": "b67ec88a51001c8c",
   "lastOpenFiles": [
-    "The Minigame.md",
-    "UI Cleanup.md",
-    "In Game Chat.md",
-    "Minigames Framework.md",
-    "The Defensive Battle.md",
-    "The First Game Loop.md",
-    "Equipment Slots.md",
-    "Pasted image 20260423224825.png",
-    "Multiplayer Sessions.md",
-    "Skill tree rework.md",
-    "Equippable Items.md",
-    "Create Account.md",
-    "Skill Tree.md",
-    "The Armory.md",
-    "The Resource Pools.md",
-    "The Workbench.md",
-    "The Travel Tab.md",
-    "Social Systems.md",
-    "Shelter.md",
-    "User Interface.md",
-    "Untitled.canvas",
-    "Untitled.base",
-    "create a link.md"
+    "Untitled.md",
+    "Untitled"
   ]
 }

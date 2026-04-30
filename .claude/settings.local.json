@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(spacetime --version)",
+      "Bash(\"/mnt/c/Users/Pikko/AppData/Local/SpacetimeDB/spacetime.exe\" --version)",
+      "Bash(npx tsc *)"
+    ]
+  }
+}

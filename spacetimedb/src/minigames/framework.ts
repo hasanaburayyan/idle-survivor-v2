@@ -14,6 +14,10 @@ import {
   type MinigameEndResult,
   type Reward,
 } from './registry';
+import {
+  insertNotification,
+  deleteNotificationByRef,
+} from '../notifications';
 
 // ---------- Helpers ----------
 
@@ -123,6 +127,7 @@ function rewardSummary(reward: Reward): unknown {
 function deleteSessionRows(ctx: any, sessionId: bigint): void {
   for (const inv of ctx.db.minigameInvite.minigame_invite_session_id.filter(sessionId)) {
     ctx.db.minigameInvite.inviteId.delete(inv.inviteId);
+    deleteNotificationByRef(ctx, inv.toUsername, 'minigameInvite', inv.inviteId);
   }
   for (const ps of ctx.db.minigamePrivateState.minigame_private_state_session_id.filter(sessionId)) {
     ctx.db.minigamePrivateState.id.delete(ps.id);
@@ -320,13 +325,21 @@ export const inviteToMinigame = spacetimedb.reducer(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     ].filter((inv: any) => inv.sessionId === session.id);
     if (existingInvites.length > 0) throw new SenderError('Already invited');
-    ctx.db.minigameInvite.insert({
+    const inviteRow = ctx.db.minigameInvite.insert({
       inviteId: 0n,
       sessionId: session.id,
       fromUsername: username,
       toUsername: target,
       createdAt: ctx.timestamp,
     });
+    insertNotification(
+      ctx,
+      target,
+      'minigameInvite',
+      `${username} invited you to ${session.kind.tag}`,
+      inviteRow.inviteId,
+      `minigameInvite:${username}`
+    );
   }
 );
 
@@ -354,6 +367,7 @@ export const acceptMinigameInvite = spacetimedb.reducer(
       joinedAt: ctx.timestamp,
     });
     ctx.db.minigameInvite.inviteId.delete(inviteId);
+    deleteNotificationByRef(ctx, username, 'minigameInvite', inviteId);
   }
 );
 
@@ -365,6 +379,7 @@ export const declineMinigameInvite = spacetimedb.reducer(
     if (invite === null) throw new SenderError('Invite not found');
     if (invite.toUsername !== username) throw new SenderError('Invite not for you');
     ctx.db.minigameInvite.inviteId.delete(inviteId);
+    deleteNotificationByRef(ctx, username, 'minigameInvite', inviteId);
   }
 );
 

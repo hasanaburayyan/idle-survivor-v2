@@ -433,6 +433,36 @@ export const groupContributionEvent = table(
   }
 );
 
+export const NotificationKind = t.enum('NotificationKind', {
+  groupInvite: t.unit(),
+  guildInvite: t.unit(),
+  minigameInvite: t.unit(),
+  system: t.unit(),
+});
+
+export const notification = table(
+  {
+    name: 'notification',
+    indexes: [
+      {
+        accessor: 'notification_recipient',
+        algorithm: 'btree',
+        columns: ['recipient'],
+      },
+    ],
+  },
+  {
+    notificationId: t.u64().primaryKey().autoInc(),
+    recipient: t.string(),
+    kind: NotificationKind,
+    summary: t.string(),
+    createdAt: t.timestamp(),
+    readAt: t.timestamp().optional(),
+    actionableRefId: t.u64().optional(),
+    dedupeKey: t.string().default(''),
+  }
+);
+
 export const chatMessage = table(
   {
     name: 'chat_message',

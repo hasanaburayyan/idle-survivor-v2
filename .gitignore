@@ -39,3 +39,6 @@ override.tf.json
 # (e.g. domain_name) are public config and stay tracked.
 *.auto.tfvars
 *.auto.tfvars.json
+
+# SpacetimeDB generated client bindings — regenerate with `spacetime generate`
+src/module_bindings/

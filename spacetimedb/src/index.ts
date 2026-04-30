@@ -28,7 +28,12 @@ import {
   groupInvitation,
   groupContributionEvent,
   chatMessage,
+  notification,
 } from './tables_core';
+import {
+  insertNotification,
+  deleteNotificationByRef,
+} from './notifications';
 import { handleDisconnect as handleMinigameDisconnect } from './minigames/framework';
 import './minigames/coinFlip';
 import './minigames/rhythmTap';
@@ -779,6 +784,18 @@ export const myInvitations = spacetimedb.view(
   }
 );
 
+export const myNotifications = spacetimedb.view(
+  { name: 'my_notifications', public: true },
+  t.array(notification.rowType),
+  ctx => {
+    const s = ctx.db.session.identity.find(ctx.sender);
+    if (s === null) return [];
+    return [
+      ...ctx.db.notification.notification_recipient.filter(s.username),
+    ];
+  }
+);
+
 export const myActivityState = spacetimedb.view(
   { name: 'my_activity_state', public: true },
   t.array(playerActivity.rowType),
@@ -1237,6 +1254,14 @@ export const signup = spacetimedb.reducer(
       username: u,
       createdAt: ctx.timestamp,
     });
+
+    insertNotification(
+      ctx,
+      u,
+      'system',
+      'Welcome to the wastes. Tap the bell to see notifications as they arrive.',
+      undefined
+    );
   }
 );
 
@@ -1334,6 +1359,10 @@ function performScavengeActivity(
     skillPoints: newSkillPoints,
     updatedAt: ctx.timestamp,
   });
+
+  if (newLevel > ps.playerLevel) {
+    notifyLevelUp(ctx, username, newLevel, newSkillPoints);
+  }
 
   addResource(ctx, username, def.yieldResourceId, gain);
 
@@ -1760,12 +1789,15 @@ export const cheatAddLevel = spacetimedb.reducer(ctx => {
   if (s === null) throw new SenderError('Not signed in');
   const ps = ctx.db.playerState.username.find(s.username);
   if (ps === null) throw new SenderError('Player state missing');
+  const newLevel = ps.playerLevel + 1;
+  const newSkillPoints = ps.skillPoints + 1;
   ctx.db.playerState.username.update({
     ...ps,
-    playerLevel: ps.playerLevel + 1,
-    skillPoints: ps.skillPoints + 1,
+    playerLevel: newLevel,
+    skillPoints: newSkillPoints,
     updatedAt: ctx.timestamp,
   });
+  notifyLevelUp(ctx, s.username, newLevel, newSkillPoints);
 });
 
 export const cheatAddScrap = spacetimedb.reducer(ctx => {
@@ -1829,6 +1861,66 @@ export const sendChatMessage = spacetimedb.reducer(
   }
 );
 
+// ---------- Notifications ----------
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function notifyLevelUp(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  ctx: any,
+  username: string,
+  newLevel: number,
+  unspentSkillPoints: number
+): void {
+  const points = `${unspentSkillPoints} skill point${unspentSkillPoints === 1 ? '' : 's'} unspent`;
+  insertNotification(
+    ctx,
+    username,
+    'system',
+    `Level up! You're now level ${newLevel} (${points}).`,
+    undefined,
+    'levelUp'
+  );
+}
+
+export const markNotificationRead = spacetimedb.reducer(
+  { notificationId: t.u64() },
+  (ctx, { notificationId }) => {
+    const s = ctx.db.session.identity.find(ctx.sender);
+    if (s === null) throw new SenderError('Not signed in');
+    const row = ctx.db.notification.notificationId.find(notificationId);
+    if (row === null || row.recipient !== s.username) {
+      throw new SenderError('Notification not found');
+    }
+    if (row.readAt !== undefined) return;
+    ctx.db.notification.notificationId.update({ ...row, readAt: ctx.timestamp });
+  }
+);
+
+export const markAllNotificationsRead = spacetimedb.reducer(ctx => {
+  const s = ctx.db.session.identity.find(ctx.sender);
+  if (s === null) throw new SenderError('Not signed in');
+  for (const n of ctx.db.notification.notification_recipient.filter(s.username)) {
+    if (n.readAt === undefined) {
+      ctx.db.notification.notificationId.update({ ...n, readAt: ctx.timestamp });
+    }
+  }
+});
+
+export const deleteNotification = spacetimedb.reducer(
+  { notificationId: t.u64() },
+  (ctx, { notificationId }) => {
+    const s = ctx.db.session.identity.find(ctx.sender);
+    if (s === null) throw new SenderError('Not signed in');
+    const row = ctx.db.notification.notificationId.find(notificationId);
+    if (row === null || row.recipient !== s.username) {
+      throw new SenderError('Notification not found');
+    }
+    ctx.db.notification.notificationId.delete(notificationId);
+  }
+);
+
+// ---------- Groups ----------
+
 export const createGroup = spacetimedb.reducer(ctx => {
   const s = ctx.db.session.identity.find(ctx.sender);
   if (s === null) throw new SenderError('Not signed in');
@@ -1873,13 +1965,21 @@ export const inviteToGroup = spacetimedb.reducer(
         throw new SenderError('Already invited');
       }
     }
-    ctx.db.groupInvitation.insert({
+    const inviteRow = ctx.db.groupInvitation.insert({
       invitationId: 0n,
       groupId: myMembership.groupId,
       fromUsername: s.username,
       toUsername: target,
       createdAt: ctx.timestamp,
     });
+    insertNotification(
+      ctx,
+      target,
+      'groupInvite',
+      `${s.username} invited you to a group`,
+      inviteRow.invitationId,
+      `groupInvite:${s.username}`
+    );
   }
 );
 
@@ -1912,10 +2012,12 @@ export const acceptInvitation = spacetimedb.reducer(
       joinedAt: ctx.timestamp,
     });
     ctx.db.groupInvitation.invitationId.delete(invitationId);
+    deleteNotificationByRef(ctx, s.username, 'groupInvite', invitationId);
     for (const other of ctx.db.groupInvitation.group_invitation_to_username.filter(
       s.username
     )) {
       ctx.db.groupInvitation.invitationId.delete(other.invitationId);
+      deleteNotificationByRef(ctx, s.username, 'groupInvite', other.invitationId);
     }
   }
 );
@@ -1930,6 +2032,7 @@ export const declineInvitation = spacetimedb.reducer(
       throw new SenderError('Invitation not found');
     }
     ctx.db.groupInvitation.invitationId.delete(invitationId);
+    deleteNotificationByRef(ctx, s.username, 'groupInvite', invitationId);
   }
 );
 
@@ -1951,6 +2054,7 @@ export const leaveGroup = spacetimedb.reducer(ctx => {
       groupId
     )) {
       ctx.db.groupInvitation.invitationId.delete(inv.invitationId);
+      deleteNotificationByRef(ctx, inv.toUsername, 'groupInvite', inv.invitationId);
     }
     for (const ev of ctx.db.groupContributionEvent.group_contribution_event_group_id.filter(
       groupId

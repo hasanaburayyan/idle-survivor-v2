@@ -24,6 +24,7 @@ import {
   groupInvitation,
   groupContributionEvent,
   chatMessage,
+  notification,
 } from './tables_core';
 import {
   minigameSession,
@@ -68,6 +69,7 @@ const spacetimedb = schema({
   groupInvitation,
   groupContributionEvent,
   chatMessage,
+  notification,
   minigameSession,
   minigameMember,
   minigameInvite,

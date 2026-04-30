@@ -102,7 +102,10 @@ upload_index=(
 # ---- 6. Invalidate ---------------------------------------------------------
 # Hashed assets don't need invalidation (their filenames change). Only
 # index.html and the implicit "/" (default root object) need busting.
+# MSYS_NO_PATHCONV=1 stops Git Bash on Windows from rewriting "/" and
+# "/index.html" into C:/Program Files/Git/... before aws.exe sees them.
 invalidate=(
+  env MSYS_NO_PATHCONV=1
   aws cloudfront create-invalidation
   --distribution-id "$dist_id"
   --paths "/" "/index.html"
