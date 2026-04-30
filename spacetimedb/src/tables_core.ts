@@ -433,6 +433,63 @@ export const groupContributionEvent = table(
   }
 );
 
+export const TutorialTriggerCondition = t.enum('TutorialTriggerCondition', {
+  chained: t.unit(),
+  playerLevelAtLeast: t.object('PlayerLevelAtLeastPayload', {
+    level: t.u32(),
+  }),
+  skillPurchased: t.object('SkillPurchasedPayload', {
+    skillId: t.string(),
+    minLevel: t.u32(),
+  }),
+  activityPerformed: t.object('ActivityPerformedPayload', {
+    activityId: t.string(),
+    minTimes: t.u32(),
+  }),
+  treeCompleted: t.object('TreeCompletedPayload', {
+    treeId: t.string(),
+  }),
+});
+
+export const TutorialTone = t.enum('TutorialTone', {
+  inCharacter: t.unit(),
+  meta: t.unit(),
+});
+
+export const tutorialStepDefinition = table(
+  { name: 'tutorial_step_definition', public: true },
+  {
+    stepId: t.string().primaryKey(),
+    sortOrder: t.u32(),
+    prereqStepId: t.string(),
+    triggerCondition: TutorialTriggerCondition,
+    headline: t.string(),
+    body: t.string(),
+    primaryCtaLabel: t.string(),
+    spotlightTargetKey: t.string(),
+    tone: TutorialTone,
+  }
+);
+
+export const playerTutorialProgress = table(
+  {
+    name: 'player_tutorial_progress',
+    indexes: [
+      {
+        accessor: 'player_tutorial_progress_username',
+        algorithm: 'btree',
+        columns: ['username'],
+      },
+    ],
+  },
+  {
+    id: t.u64().primaryKey().autoInc(),
+    username: t.string(),
+    stepId: t.string(),
+    completedAt: t.timestamp(),
+  }
+);
+
 export const NotificationKind = t.enum('NotificationKind', {
   groupInvite: t.unit(),
   guildInvite: t.unit(),

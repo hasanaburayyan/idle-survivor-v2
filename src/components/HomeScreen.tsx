@@ -19,6 +19,8 @@ import { ScrapFlowProvider } from './ScrapFlow';
 import AutomationFeedback from './AutomationFeedback';
 import NotificationBell from './NotificationBell';
 import ResourceStrip from './ResourceStrip';
+import { SpotlightTargetProvider } from './SpotlightTargetRegistry';
+import TutorialPopup from './TutorialPopup';
 
 interface HomeScreenProps {
   username: string;
@@ -26,9 +28,11 @@ interface HomeScreenProps {
 
 export default function HomeScreen({ username }: HomeScreenProps) {
   return (
-    <ScrapFlowProvider>
-      <HomeScreenInner username={username} />
-    </ScrapFlowProvider>
+    <SpotlightTargetProvider>
+      <ScrapFlowProvider>
+        <HomeScreenInner username={username} />
+      </ScrapFlowProvider>
+    </SpotlightTargetProvider>
   );
 }
 
@@ -135,6 +139,7 @@ function HomeScreenInner({ username }: HomeScreenProps) {
       <TabBar active={tab} onChange={setTab} />
       <GroupPanel username={username} />
       <MinigameModal />
+      <TutorialPopup />
     </SafeAreaView>
   );
 }
