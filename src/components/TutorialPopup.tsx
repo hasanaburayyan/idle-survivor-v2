@@ -139,32 +139,72 @@ export default function TutorialPopup() {
 
   const isInCharacter = activeStep.tone.tag === 'InCharacter';
 
+  const cutoutPad = 6;
+  const cutout = spotlightRect
+    ? {
+        x: spotlightRect.x - cutoutPad,
+        y: spotlightRect.y - cutoutPad,
+        width: spotlightRect.width + cutoutPad * 2,
+        height: spotlightRect.height + cutoutPad * 2,
+      }
+    : null;
+
   return (
     <View
       pointerEvents="box-none"
       className="absolute inset-0"
       style={{ zIndex: 100 }}
     >
-      <View
-        pointerEvents="auto"
-        className="absolute inset-0 bg-black/60"
-      />
-      {spotlightRect ? (
-        <View
-          pointerEvents="none"
-          className="absolute rounded-xl border-2 border-amber-400"
-          style={{
-            left: spotlightRect.x - 6,
-            top: spotlightRect.y - 6,
-            width: spotlightRect.width + 12,
-            height: spotlightRect.height + 12,
-            shadowColor: '#fbbf24',
-            shadowOpacity: 0.9,
-            shadowRadius: 16,
-            elevation: 8,
-          }}
-        />
-      ) : null}
+      {cutout ? (
+        <>
+          {/* 4-rect frame around the spotlighted target so clicks reach the target itself */}
+          <View
+            pointerEvents="auto"
+            className="absolute left-0 right-0 bg-black/60"
+            style={{ top: 0, height: Math.max(0, cutout.y) }}
+          />
+          <View
+            pointerEvents="auto"
+            className="absolute left-0 right-0 bg-black/60"
+            style={{ top: cutout.y + cutout.height, bottom: 0 }}
+          />
+          <View
+            pointerEvents="auto"
+            className="absolute bg-black/60"
+            style={{
+              top: cutout.y,
+              left: 0,
+              width: Math.max(0, cutout.x),
+              height: cutout.height,
+            }}
+          />
+          <View
+            pointerEvents="auto"
+            className="absolute right-0 bg-black/60"
+            style={{
+              top: cutout.y,
+              left: cutout.x + cutout.width,
+              height: cutout.height,
+            }}
+          />
+          <View
+            pointerEvents="none"
+            className="absolute rounded-xl border-2 border-amber-400"
+            style={{
+              left: cutout.x,
+              top: cutout.y,
+              width: cutout.width,
+              height: cutout.height,
+              shadowColor: '#fbbf24',
+              shadowOpacity: 0.9,
+              shadowRadius: 16,
+              elevation: 8,
+            }}
+          />
+        </>
+      ) : (
+        <View pointerEvents="auto" className="absolute inset-0 bg-black/60" />
+      )}
       <View
         pointerEvents="box-none"
         className="absolute inset-0 items-center justify-end pb-32 px-6"

@@ -245,20 +245,6 @@ const SKILL_SEEDS: SkillSeed[] = [
     positionY: 800,
     sortOrder: 11,
   },
-  {
-    skillId: 'unlock_classes',
-    name: 'Unlock Classes',
-    description:
-      'Completes the tutorial tree. Additional class system placeholder.',
-    maxLevel: 1,
-    prerequisiteSkillId: 'medicine_multiplier',
-    prerequisiteLevel: 4,
-    prerequisitePlayerLevel: 30,
-    costSkillPoints: 0,
-    positionX: 500,
-    positionY: 400,
-    sortOrder: 12,
-  },
 ];
 
 interface SkillPrereqSeed {
@@ -267,13 +253,7 @@ interface SkillPrereqSeed {
   requiredLevel: number;
 }
 
-const SKILL_PREREQ_SEEDS: SkillPrereqSeed[] = [
-  { skillId: 'unlock_classes', requiredSkillId: 'unlock_shelter', requiredLevel: 1 },
-  { skillId: 'unlock_classes', requiredSkillId: 'parts_multiplier', requiredLevel: 4 },
-  { skillId: 'unlock_classes', requiredSkillId: 'metal_multiplier', requiredLevel: 4 },
-  { skillId: 'unlock_classes', requiredSkillId: 'fabric_multiplier', requiredLevel: 4 },
-  { skillId: 'unlock_classes', requiredSkillId: 'food_multiplier', requiredLevel: 4 },
-];
+const SKILL_PREREQ_SEEDS: SkillPrereqSeed[] = [];
 
 interface LocationSeed {
   locationKey: string;
@@ -737,7 +717,7 @@ const TUTORIAL_STEP_SEEDS: TutorialStepSeed[] = [
   {
     stepId: 'shelter_built',
     sortOrder: 11,
-    prereqStepId: 'unlock_meds_taken',
+    prereqStepId: 'unlock_shelter_taken',
     triggerCondition: { tag: 'activityPerformed', value: { activityId: 'build_shelter', minTimes: 1 } },
     headline: 'Shelter, built.',
     body: "Walls, a roof, a place to keep what you've gathered. Travel here when you can — the Workbench you build inside is where automating your scavenging starts.",
@@ -2122,6 +2102,7 @@ function evaluateTutorialTrigger(ctx: any, username: string, trigger: any): bool
     }
     case 'treeCompleted': {
       // v1 — only the Beginner tree exists; check that every skill_definition is at maxLevel for this player.
+      // TODO: filter by trigger.value.treeId once skill_definition has a treeId column (Skill Tree Tiers spec).
       const playerSkills = new Map<string, number>();
       for (const ps of ctx.db.playerSkill.player_skill_username.filter(username)) {
         playerSkills.set(ps.skillId, ps.level);

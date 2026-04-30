@@ -2,10 +2,13 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react';
+import { type View } from 'react-native';
 
 export interface SpotlightRect {
   x: number;
@@ -71,9 +74,6 @@ export function useSpotlightRegistry() {
   }
   return ctx;
 }
-
-import { useEffect, useRef } from 'react';
-import { type View } from 'react-native';
 
 /**
  * Registers a View ref under a stable spotlight key. The view's measured
