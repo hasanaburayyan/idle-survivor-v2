@@ -55,12 +55,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "The Notifications Tray.md",
+                "file": "The Minigame.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "The Notifications Tray"
+              "title": "The Minigame"
             }
           }
         ],
@@ -228,12 +228,15 @@
   },
   "active": "bfa7f3f38dca0945",
   "lastOpenFiles": [
-    "The Minigame.md",
+    "The Tutorial Flow.md",
+    "The Skill Tree Tiers.md",
+    "The Notifications Tray.md",
     "UI Cleanup.md",
     "In Game Chat.md",
     "Minigames Framework.md",
     "The Defensive Battle.md",
     "The First Game Loop.md",
+    "The Minigame.md",
     "Equipment Slots.md",
     "Pasted image 20260423224825.png",
     "Multiplayer Sessions.md",
