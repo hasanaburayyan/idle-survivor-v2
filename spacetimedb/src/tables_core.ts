@@ -170,7 +170,17 @@ export const playerActivity = table(
 );
 
 export const skillDefinition = table(
-  { name: 'skill_definition', public: true },
+  {
+    name: 'skill_definition',
+    public: true,
+    indexes: [
+      {
+        accessor: 'skill_definition_tree',
+        algorithm: 'btree',
+        columns: ['treeId'],
+      },
+    ],
+  },
   {
     skillId: t.string().primaryKey(),
     name: t.string(),
@@ -183,6 +193,7 @@ export const skillDefinition = table(
     positionX: t.i32(),
     positionY: t.i32(),
     sortOrder: t.u32(),
+    treeId: t.string(),
   }
 );
 
@@ -494,6 +505,7 @@ export const NotificationKind = t.enum('NotificationKind', {
   groupInvite: t.unit(),
   guildInvite: t.unit(),
   minigameInvite: t.unit(),
+  defensiveBattleVote: t.unit(),
   system: t.unit(),
 });
 

@@ -1,7 +1,9 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
+  Easing,
   Platform,
+  ScrollView,
   Text,
   View,
   type LayoutChangeEvent,
@@ -36,7 +38,17 @@ interface SkillDef {
   positionX: number;
   positionY: number;
   sortOrder: number;
+  treeId: string;
 }
+
+// Distinct unicode glyphs per stat — mirrors CharacterTab.STAT_GLYPH so the
+// same visual shorthand reads consistently across screens.
+const STAT_GLYPH: Record<string, string> = {
+  vigor: '♥',
+  power: '✦',
+  focus: '◎',
+  fortune: '✧',
+};
 
 interface SkillPrereqRow {
   id: bigint;
@@ -54,11 +66,15 @@ export default function SkillTreeTab() {
   const [extraPrereqs] = useTable(tables.skillPrerequisite);
   const [mySkills] = useTable(tables.mySkills);
   const [playerStates] = useTable(tables.myPlayerState);
+  const [visibleTrees] = useTable(tables.myVisibleSkillTrees);
+  const [pointBalances] = useTable(tables.myPointBalances);
+  const [statGrants] = useTable(tables.skillStatGrant);
+  const [statDefs] = useTable(tables.statDefinition);
   const upgrade = useReducer(reducers.upgradeSkill);
 
   const [selected, setSelected] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const skillPoints = playerStates[0]?.skillPoints ?? 0;
+  const [activeTreeId, setActiveTreeId] = useState<string | null>(null);
   const playerLevel = playerStates[0]?.playerLevel ?? 0;
 
   const levelBySkill = useMemo(() => {
@@ -83,6 +99,58 @@ export default function SkillTreeTab() {
     [definitions]
   );
 
+  const sortedTrees = useMemo(
+    () => [...visibleTrees].sort((a, b) => a.sortOrder - b.sortOrder),
+    [visibleTrees]
+  );
+
+  const pointsByPool = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const b of pointBalances) m.set(b.poolId, b.amount);
+    return m;
+  }, [pointBalances]);
+
+  const skillsByTree = useMemo(() => {
+    const m = new Map<string, SkillDef[]>();
+    for (const def of sorted) {
+      const list = m.get(def.treeId) ?? [];
+      list.push(def);
+      m.set(def.treeId, list);
+    }
+    return m;
+  }, [sorted]);
+
+  // Per-tree progress: { maxed, total } counts. Used by the tab strip.
+  const progressByTree = useMemo(() => {
+    const m = new Map<string, { maxed: number; total: number }>();
+    for (const tree of sortedTrees) {
+      const skills = skillsByTree.get(tree.treeId) ?? [];
+      let maxed = 0;
+      for (const def of skills) {
+        const lvl = levelBySkill.get(def.skillId) ?? 0;
+        if (lvl >= def.maxLevel) maxed += 1;
+      }
+      m.set(tree.treeId, { maxed, total: skills.length });
+    }
+    return m;
+  }, [sortedTrees, skillsByTree, levelBySkill]);
+
+  const grantsBySkill = useMemo(() => {
+    const m = new Map<string, { statId: string; amountPerLevel: number }[]>();
+    for (const g of statGrants) {
+      const list = m.get(g.skillId) ?? [];
+      list.push({ statId: g.statId, amountPerLevel: g.amountPerLevel });
+      m.set(g.skillId, list);
+    }
+    return m;
+  }, [statGrants]);
+
+  const statNameById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const d of statDefs) m.set(d.statId, d.displayName);
+    return m;
+  }, [statDefs]);
+
   const allPrereqsMet = (def: SkillDef): boolean => {
     if (def.prerequisiteSkillId !== '') {
       const lvl = levelBySkill.get(def.prerequisiteSkillId) ?? 0;
@@ -101,10 +169,58 @@ export default function SkillTreeTab() {
     return true;
   };
 
-  const visible = useMemo(() => {
-    return sorted.filter(def => allPrereqsMet(def));
+  // Default tab: lowest-sortOrder visible tree that has both unspent pool
+  // points AND at least one non-maxed visible node. This avoids landing on
+  // a fully-maxed Beginner with unspent points earmarked for Intermediate.
+  // Falls back to lowest-sortOrder visible tree overall.
+  useEffect(() => {
+    if (sortedTrees.length === 0) {
+      if (activeTreeId !== null) setActiveTreeId(null);
+      return;
+    }
+    // Honor an existing selection if it's still visible.
+    if (activeTreeId && sortedTrees.some(t => t.treeId === activeTreeId)) {
+      return;
+    }
+    let pick: string | null = null;
+    for (const tree of sortedTrees) {
+      const skills = skillsByTree.get(tree.treeId) ?? [];
+      const hasSpendable = skills.some(d => {
+        const lvl = levelBySkill.get(d.skillId) ?? 0;
+        return lvl < d.maxLevel;
+      });
+      const poolBalance = pointsByPool.get(tree.pointPoolId) ?? 0;
+      if (hasSpendable && poolBalance > 0) {
+        pick = tree.treeId;
+        break;
+      }
+    }
+    setActiveTreeId(pick ?? sortedTrees[0]?.treeId ?? null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sorted, levelBySkill, extraPrereqsBySkill, playerLevel]);
+  }, [sortedTrees, skillsByTree, pointsByPool, levelBySkill]);
+
+  const activeTree = useMemo(
+    () => sortedTrees.find(t => t.treeId === activeTreeId) ?? null,
+    [sortedTrees, activeTreeId]
+  );
+
+  const activePoolPoints = activeTree
+    ? pointsByPool.get(activeTree.pointPoolId) ?? 0
+    : 0;
+
+  const visible = useMemo(() => {
+    if (!activeTreeId) return [];
+    return sorted.filter(
+      def => def.treeId === activeTreeId && allPrereqsMet(def)
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    sorted,
+    activeTreeId,
+    levelBySkill,
+    extraPrereqsBySkill,
+    playerLevel,
+  ]);
 
   const visibleIds = useMemo(
     () => new Set(visible.map(d => d.skillId)),
@@ -239,18 +355,28 @@ export default function SkillTreeTab() {
     );
   }
 
+  // Drop the selection if its skill is no longer in the active tree.
   const selectedDef = selected
     ? sorted.find(d => d.skillId === selected) ?? null
     : null;
-  const selectedLevel = selectedDef
-    ? levelBySkill.get(selectedDef.skillId) ?? 0
+  const selectedInActive =
+    selectedDef !== null && selectedDef.treeId === activeTreeId;
+  const effectiveSelectedDef = selectedInActive ? selectedDef : null;
+
+  const selectedLevel = effectiveSelectedDef
+    ? levelBySkill.get(effectiveSelectedDef.skillId) ?? 0
     : 0;
-  const selectedAtMax = selectedDef
-    ? selectedLevel >= selectedDef.maxLevel
+  const selectedAtMax = effectiveSelectedDef
+    ? selectedLevel >= effectiveSelectedDef.maxLevel
     : false;
-  const selectedPrereqMet = selectedDef ? allPrereqsMet(selectedDef) : false;
-  const selectedCost = selectedDef?.costSkillPoints ?? 1;
-  const canAfford = skillPoints >= selectedCost;
+  const selectedPrereqMet = effectiveSelectedDef
+    ? allPrereqsMet(effectiveSelectedDef)
+    : false;
+  const selectedCost = effectiveSelectedDef?.costSkillPoints ?? 1;
+  const canAfford = activePoolPoints >= selectedCost;
+  const selectedGrants = effectiveSelectedDef
+    ? grantsBySkill.get(effectiveSelectedDef.skillId) ?? []
+    : [];
 
   return (
     <View className="flex-1">
@@ -258,10 +384,49 @@ export default function SkillTreeTab() {
         <Text className="text-xs uppercase tracking-widest text-slate-500">
           Skill Tree
         </Text>
-        <Text className="text-sm text-slate-300">
-          {skillPoints} point{skillPoints === 1 ? '' : 's'}
-        </Text>
+        <PoolPointCounter
+          points={activePoolPoints}
+          poolName={
+            sortedTrees.length > 1 && activeTree
+              ? activeTree.displayName
+              : null
+          }
+        />
       </View>
+
+      {sortedTrees.length > 1 ? (
+        <View className="border-b border-slate-800 bg-slate-950">
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{
+              paddingHorizontal: 16,
+              paddingVertical: 8,
+              gap: 8,
+              alignItems: 'center',
+            }}
+          >
+            {sortedTrees.map(tree => {
+              const progress = progressByTree.get(tree.treeId) ?? {
+                maxed: 0,
+                total: 0,
+              };
+              return (
+                <TreeTab
+                  key={tree.treeId}
+                  name={tree.displayName}
+                  progress={progress}
+                  active={activeTreeId === tree.treeId}
+                  onPress={() => {
+                    setActiveTreeId(tree.treeId);
+                    setSelected(null);
+                  }}
+                />
+              );
+            })}
+          </ScrollView>
+        </View>
+      ) : null}
 
       <View
         className="flex-1 bg-slate-950"
@@ -370,20 +535,51 @@ export default function SkillTreeTab() {
         </SafePressable>
       </View>
 
-      {selectedDef ? (
+      {effectiveSelectedDef ? (
         <View className="px-6 py-4 border-t border-slate-800 bg-slate-900 gap-2">
           <Text className="text-sm font-semibold text-slate-100">
-            {selectedDef.name}{' '}
+            {effectiveSelectedDef.name}{' '}
             <Text className="text-xs text-slate-400">
-              Lv {selectedLevel} / {selectedDef.maxLevel}
+              Lv {selectedLevel} / {effectiveSelectedDef.maxLevel}
             </Text>
           </Text>
           <Text className="text-xs text-slate-400">
-            {selectedDef.description}
+            {effectiveSelectedDef.description}
           </Text>
+          {selectedGrants.length > 0 ? (
+            <View className="border-t border-slate-800/60 mt-2 pt-2 gap-1">
+              {selectedGrants.map(g => {
+                const total = selectedLevel * g.amountPerLevel;
+                const totalColor =
+                  selectedLevel === 0
+                    ? 'text-slate-500'
+                    : selectedLevel >= effectiveSelectedDef.maxLevel
+                      ? 'text-emerald-300 font-semibold'
+                      : 'text-emerald-400';
+                return (
+                  <View
+                    key={g.statId}
+                    className="flex-row items-center justify-between"
+                  >
+                    <View className="flex-row items-center gap-2 flex-1">
+                      <Text className="text-[11px] text-amber-300">
+                        {STAT_GLYPH[g.statId] ?? '•'}
+                      </Text>
+                      <Text className="text-xs text-slate-300">
+                        +{g.amountPerLevel} {statNameById.get(g.statId) ?? g.statId} per level
+                      </Text>
+                    </View>
+                    <Text className={`text-xs ${totalColor}`}>
+                      → +{total}
+                    </Text>
+                  </View>
+                );
+              })}
+            </View>
+          ) : null}
           <SafePressable
             disabled={busy || !canAfford || selectedAtMax || !selectedPrereqMet}
-            onPress={() => onUpgrade(selectedDef.skillId)}
+            onPress={() => onUpgrade(effectiveSelectedDef.skillId)}
             className={`rounded-lg py-2.5 items-center mt-1 ${
               busy || !canAfford || selectedAtMax || !selectedPrereqMet
                 ? 'bg-slate-800'
@@ -413,6 +609,87 @@ export default function SkillTreeTab() {
         </View>
       ) : null}
     </View>
+  );
+}
+
+function TreeTab({
+  name,
+  progress,
+  active,
+  onPress,
+}: {
+  name: string;
+  progress: { maxed: number; total: number };
+  active: boolean;
+  onPress: () => void;
+}) {
+  const allDone = progress.total > 0 && progress.maxed === progress.total;
+  const containerClass = active
+    ? 'bg-amber-500/15 border border-amber-500/40'
+    : 'bg-slate-800 border border-transparent';
+  const nameColor = active ? 'text-amber-300 font-semibold' : 'text-slate-300';
+  const progressColor = allDone
+    ? 'text-emerald-400/70'
+    : active
+      ? 'text-amber-400/70'
+      : 'text-slate-500';
+  return (
+    <SafePressable
+      onPress={onPress}
+      className={`rounded-full px-4 py-1.5 ${containerClass}`}
+      accessibilityLabel={`${name} skill tree, ${progress.maxed} of ${progress.total} maxed`}
+    >
+      <Text className={`text-sm ${nameColor}`}>{name}</Text>
+      <Text className={`text-[10px] ${progressColor}`}>
+        {allDone ? 'done' : `${progress.maxed} / ${progress.total}`}
+      </Text>
+    </SafePressable>
+  );
+}
+
+function PoolPointCounter({
+  points,
+  poolName,
+}: {
+  points: number;
+  poolName: string | null;
+}) {
+  const flash = useRef(new Animated.Value(0)).current;
+  const prevPoints = useRef(points);
+
+  useEffect(() => {
+    if (points !== prevPoints.current) {
+      prevPoints.current = points;
+      flash.setValue(0);
+      Animated.sequence([
+        Animated.timing(flash, {
+          toValue: 1,
+          duration: 120,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        Animated.timing(flash, {
+          toValue: 0,
+          duration: 220,
+          easing: Easing.in(Easing.cubic),
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }
+  }, [points, flash]);
+
+  const scale = flash.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1, 1.18],
+  });
+
+  return (
+    <Animated.View style={{ transform: [{ scale }] }}>
+      <Text className="text-sm text-slate-300">
+        {poolName ? `${poolName} · ` : ''}
+        {points} point{points === 1 ? '' : 's'}
+      </Text>
+    </Animated.View>
   );
 }
 

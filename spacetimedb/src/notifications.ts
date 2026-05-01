@@ -2,6 +2,7 @@ export type NotificationKindTag =
   | 'groupInvite'
   | 'guildInvite'
   | 'minigameInvite'
+  | 'defensiveBattleVote'
   | 'system';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

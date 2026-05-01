@@ -41,6 +41,21 @@ import './minigames/coinFlip';
 import './minigames/rhythmTap';
 import { seedCardDefinitions } from './minigames/cardDuel';
 import './minigames/cardDuel';
+import { seedStatDefinitions, setStatSource } from './stats';
+import { seedArmory } from './armory';
+import {
+  seedActions,
+  initializeDefaultActionsAndLoadout,
+  migrateExistingPlayersToDefaults,
+} from './actions';
+import { handleDefensiveBattleDisconnect } from './battle';
+import {
+  seedSkillTrees,
+  validateSkillTreeIntegrity,
+  isTreeCompleted,
+  addPoolBalance,
+  getPoolBalanceRow,
+} from './skill_tree';
 
 export {
   createMinigame,
@@ -64,6 +79,41 @@ export {
   cdEndTurn,
   cdMulligan,
 } from './minigames/cardDuel';
+export { myStatTotals, myStatBreakdown } from './stats';
+export { myVisibleSkillTrees, myPointBalances } from './skill_tree';
+export {
+  myKnownActions,
+  myActionLoadout,
+  myActionPreviews,
+  setLoadoutSlot,
+  clearLoadoutSlot,
+  swapLoadoutSlots,
+} from './actions';
+export {
+  myDefensiveBattleSession,
+  myDefensiveBattleParticipants,
+  myDefensiveBattleHand,
+  myDefensiveBattleZombies,
+  myDefensiveBattleStatSnapshot,
+  myDefensiveBattleLog,
+  proposeDefensiveBattle,
+  voteDefensiveBattle,
+  performAction,
+  forfeitBattle,
+  runVoteCancelJob,
+} from './battle';
+export {
+  myAvailableRecipes,
+  myVisibleEquipmentSlots,
+  myArmoryState,
+  myItemInstances,
+  myItemInstanceAffixes,
+  myEquipment,
+  upgradeArmory,
+  craftItem,
+  equipItem,
+  unequipItem,
+} from './armory';
 
 export default spacetimedb;
 
@@ -88,12 +138,14 @@ interface SkillSeed {
   sortOrder: number;
 }
 
+// Beginner tree introduces new content only — resource multipliers live in
+// Intermediate as minor/major chains alongside the core stats.
 const SKILL_SEEDS: SkillSeed[] = [
   {
-    skillId: 'scavenge_multiplier',
-    name: 'Scavenge Multiplier',
-    description: '+25% per level to Scavenge yield.',
-    maxLevel: 4,
+    skillId: 'unlock_shelter',
+    name: 'Unlock Shelter',
+    description: 'Unlocks the Build Shelter activity in the Wastes.',
+    maxLevel: 1,
     prerequisiteSkillId: '',
     prerequisiteLevel: 0,
     prerequisitePlayerLevel: 0,
@@ -103,43 +155,17 @@ const SKILL_SEEDS: SkillSeed[] = [
     sortOrder: 0,
   },
   {
-    skillId: 'unlock_shelter',
-    name: 'Unlock Shelter',
-    description: 'Unlocks the Build Shelter activity in the Wastes.',
+    skillId: 'unlock_parts',
+    name: 'Unlock Parts',
+    description: 'Unlocks the Parts resource and Scavenge for Parts activity.',
     maxLevel: 1,
-    prerequisiteSkillId: 'scavenge_multiplier',
-    prerequisiteLevel: 1,
+    prerequisiteSkillId: '',
+    prerequisiteLevel: 0,
     prerequisitePlayerLevel: 0,
     costSkillPoints: 1,
     positionX: 220,
     positionY: 0,
     sortOrder: 1,
-  },
-  {
-    skillId: 'unlock_parts',
-    name: 'Unlock Parts',
-    description: 'Unlocks the Parts resource and Scavenge for Parts activity.',
-    maxLevel: 1,
-    prerequisiteSkillId: 'scavenge_multiplier',
-    prerequisiteLevel: 1,
-    prerequisitePlayerLevel: 0,
-    costSkillPoints: 1,
-    positionX: 0,
-    positionY: 160,
-    sortOrder: 2,
-  },
-  {
-    skillId: 'parts_multiplier',
-    name: 'Parts Multiplier',
-    description: '+25% per level to Scavenge for Parts yield.',
-    maxLevel: 4,
-    prerequisiteSkillId: 'unlock_parts',
-    prerequisiteLevel: 1,
-    prerequisitePlayerLevel: 0,
-    costSkillPoints: 1,
-    positionX: 220,
-    positionY: 160,
-    sortOrder: 3,
   },
   {
     skillId: 'unlock_metal',
@@ -150,22 +176,9 @@ const SKILL_SEEDS: SkillSeed[] = [
     prerequisiteLevel: 1,
     prerequisitePlayerLevel: 0,
     costSkillPoints: 1,
-    positionX: 0,
-    positionY: 320,
-    sortOrder: 4,
-  },
-  {
-    skillId: 'metal_multiplier',
-    name: 'Metal Multiplier',
-    description: '+25% per level to Scavenge for Metal yield.',
-    maxLevel: 4,
-    prerequisiteSkillId: 'unlock_metal',
-    prerequisiteLevel: 1,
-    prerequisitePlayerLevel: 0,
-    costSkillPoints: 1,
     positionX: 220,
-    positionY: 320,
-    sortOrder: 5,
+    positionY: 160,
+    sortOrder: 2,
   },
   {
     skillId: 'unlock_fabric',
@@ -176,22 +189,9 @@ const SKILL_SEEDS: SkillSeed[] = [
     prerequisiteLevel: 1,
     prerequisitePlayerLevel: 0,
     costSkillPoints: 1,
-    positionX: 0,
-    positionY: 480,
-    sortOrder: 6,
-  },
-  {
-    skillId: 'fabric_multiplier',
-    name: 'Fabric Multiplier',
-    description: '+25% per level to Scavenge for Fabric yield.',
-    maxLevel: 4,
-    prerequisiteSkillId: 'unlock_fabric',
-    prerequisiteLevel: 1,
-    prerequisitePlayerLevel: 0,
-    costSkillPoints: 1,
     positionX: 220,
-    positionY: 480,
-    sortOrder: 7,
+    positionY: 320,
+    sortOrder: 3,
   },
   {
     skillId: 'unlock_food',
@@ -202,22 +202,9 @@ const SKILL_SEEDS: SkillSeed[] = [
     prerequisiteLevel: 1,
     prerequisitePlayerLevel: 0,
     costSkillPoints: 1,
-    positionX: 0,
-    positionY: 640,
-    sortOrder: 8,
-  },
-  {
-    skillId: 'food_multiplier',
-    name: 'Food Multiplier',
-    description: '+25% per level to Scavenge for Food yield.',
-    maxLevel: 4,
-    prerequisiteSkillId: 'unlock_food',
-    prerequisiteLevel: 1,
-    prerequisitePlayerLevel: 0,
-    costSkillPoints: 1,
     positionX: 220,
-    positionY: 640,
-    sortOrder: 9,
+    positionY: 480,
+    sortOrder: 4,
   },
   {
     skillId: 'unlock_medicine',
@@ -228,22 +215,9 @@ const SKILL_SEEDS: SkillSeed[] = [
     prerequisiteLevel: 1,
     prerequisitePlayerLevel: 0,
     costSkillPoints: 1,
-    positionX: 0,
-    positionY: 800,
-    sortOrder: 10,
-  },
-  {
-    skillId: 'medicine_multiplier',
-    name: 'Meds Multiplier',
-    description: '+25% per level to Scavenge for Meds yield.',
-    maxLevel: 4,
-    prerequisiteSkillId: 'unlock_medicine',
-    prerequisiteLevel: 1,
-    prerequisitePlayerLevel: 0,
-    costSkillPoints: 1,
     positionX: 220,
-    positionY: 800,
-    sortOrder: 11,
+    positionY: 640,
+    sortOrder: 5,
   },
 ];
 
@@ -424,6 +398,22 @@ const ACTIVITY_SEEDS: ActivitySeed[] = [
     skillChainPrefix: 'medicine',
     sortOrder: 6,
   },
+  {
+    activityId: 'build_armory',
+    name: 'Build Armory',
+    description: 'Pour scrap and parts into the armory frame until it stands.',
+    icon: '⚒',
+    locationKey: 'the_shelter',
+    kind: 'build_progress',
+    maxUses: 1,
+    prerequisiteSkillId: '',
+    prerequisiteSkillLevel: 0,
+    progressTarget: 2000n,
+    maxPerClick: 200n,
+    yieldResourceId: '',
+    skillChainPrefix: '',
+    sortOrder: 1,
+  },
 ];
 
 interface ResourceSeed {
@@ -514,6 +504,16 @@ const STRUCTURE_SEEDS: StructureSeed[] = [
     locationKey: 'the_shelter',
     buildActivityId: 'build_workbench',
     sortOrder: 0,
+  },
+  {
+    structureId: 'armory',
+    name: 'Armory',
+    description:
+      'Workbench, anvil, and crates of salvaged plates. Crafts gear that boosts your stats.',
+    icon: '⚒',
+    locationKey: 'the_shelter',
+    buildActivityId: 'build_armory',
+    sortOrder: 1,
   },
 ];
 
@@ -638,20 +638,9 @@ const TUTORIAL_STEP_SEEDS: TutorialStepSeed[] = [
     tone: { tag: 'inCharacter' },
   },
   {
-    stepId: 'first_skill_spend',
-    sortOrder: 4,
-    prereqStepId: 'first_level_up',
-    triggerCondition: { tag: 'skillPurchased', value: { skillId: 'scavenge_multiplier', minLevel: 1 } },
-    headline: 'Scavenge Multiplier.',
-    body: 'Each level here makes scrap come in faster. And look — taking that node revealed something new. The wastes have more than just scrap.',
-    primaryCtaLabel: 'Continue.',
-    spotlightTargetKey: 'skill_node:unlock_parts',
-    tone: { tag: 'meta' },
-  },
-  {
     stepId: 'unlock_shelter_taken',
     sortOrder: 5,
-    prereqStepId: 'first_skill_spend',
+    prereqStepId: 'first_level_up',
     triggerCondition: { tag: 'skillPurchased', value: { skillId: 'unlock_shelter', minLevel: 1 } },
     headline: 'Shelter, in theory.',
     body: "You unlocked the Shelter. That puts a Build Shelter activity on the Wastes — once you've built it, you can travel inside. There's room in there for a Workbench, and a Workbench will eventually automate your scavenging while you focus on bigger things. Build it when you're ready.",
@@ -662,7 +651,7 @@ const TUTORIAL_STEP_SEEDS: TutorialStepSeed[] = [
   {
     stepId: 'unlock_parts_taken',
     sortOrder: 6,
-    prereqStepId: 'first_skill_spend',
+    prereqStepId: 'first_level_up',
     triggerCondition: { tag: 'skillPurchased', value: { skillId: 'unlock_parts', minLevel: 1 } },
     headline: 'Parts.',
     body: 'Bolts, gears, broken machinery. Worth more than scrap to anyone who can fix things. There\'s a new activity in the Wastes for finding them.',
@@ -739,9 +728,14 @@ const TUTORIAL_STEP_SEEDS: TutorialStepSeed[] = [
 ];
 
 export const init = spacetimedb.init(ctx => {
+  // Seed skill trees + pools first — Intermediate seed in seedSkillTrees()
+  // depends on skillTreeDefinition rows being present for the validation pass.
+  seedSkillTrees(ctx);
   for (const seed of SKILL_SEEDS) {
     if (ctx.db.skillDefinition.skillId.find(seed.skillId) === null) {
-      ctx.db.skillDefinition.insert(seed);
+      // Stamp every existing skill seed with treeId: 'beginner' since
+      // SKILL_SEEDS predate the tier system.
+      ctx.db.skillDefinition.insert({ ...seed, treeId: 'beginner' });
     }
   }
   for (const seed of SKILL_PREREQ_SEEDS) {
@@ -807,12 +801,23 @@ export const init = spacetimedb.init(ctx => {
     }
   }
   seedCardDefinitions(ctx);
+  seedStatDefinitions(ctx);
+  seedArmory(ctx);
+  seedActions(ctx);
+  // Migration: ensure every existing player has the default action grants
+  // and a populated loadout. Idempotent; safe to run on every init.
+  migrateExistingPlayersToDefaults(ctx);
+  validateSkillTreeIntegrity(ctx);
 });
 
 export const onConnect = spacetimedb.clientConnected(_ctx => {});
 
 export const onDisconnect = spacetimedb.clientDisconnected(ctx => {
   handleMinigameDisconnect(ctx);
+  const s = ctx.db.session.identity.find(ctx.sender);
+  if (s !== null) {
+    handleDefensiveBattleDisconnect(ctx, s.username);
+  }
 });
 
 export const mySession = spacetimedb.view(
@@ -1394,10 +1399,17 @@ export const signup = spacetimedb.reducer(
       scrap: 0n,
       xp: 0n,
       playerLevel: 0,
-      skillPoints: 0,
+      skillPoints: 0, // dead column — all reads/writes go through player_skill_point_balance
       location: 'the_wastes',
       updatedAt: ctx.timestamp,
     });
+    ctx.db.playerSkillPointBalance.insert({
+      id: 0n,
+      username: u,
+      poolId: 'general',
+      amount: 0,
+    });
+    initializeDefaultActionsAndLoadout(ctx, u);
 
     if (ctx.db.session.identity.find(ctx.sender) !== null) {
       ctx.db.session.identity.delete(ctx.sender);
@@ -1487,7 +1499,12 @@ function performScavengeActivity(
   });
 
   const prefix = def.skillChainPrefix || 'scavenge';
-  const multiplierLevel = skillLevel(ctx, username, `${prefix}_multiplier`);
+  // Effective multiplier level combines minor + major in a 1:3 ratio matching
+  // the core stats pattern. Minor max 4 + Major max 4 = 16 effective levels =
+  // +400% yield at full investment.
+  const minorLevel = skillLevel(ctx, username, `${prefix}_minor_multiplier`);
+  const majorLevel = skillLevel(ctx, username, `${prefix}_major_multiplier`);
+  const multiplierLevel = minorLevel + 3 * majorLevel;
   let gain = computeScavengeGain(activityRow.level, multiplierLevel);
   if (yieldPer100 !== 100) {
     gain = (gain * BigInt(yieldPer100)) / 100n;
@@ -1496,12 +1513,12 @@ function performScavengeActivity(
 
   let newXp = ps.xp + 1n;
   let newLevel = ps.playerLevel;
-  let newSkillPoints = ps.skillPoints;
+  let pointsGained = 0;
   let threshold = xpToNextLevel(newLevel);
   while (newXp >= threshold) {
     newXp -= threshold;
     newLevel += 1;
-    newSkillPoints += 1;
+    pointsGained += 1;
     threshold = xpToNextLevel(newLevel);
   }
 
@@ -1509,12 +1526,12 @@ function performScavengeActivity(
     ...ps,
     xp: newXp,
     playerLevel: newLevel,
-    skillPoints: newSkillPoints,
     updatedAt: ctx.timestamp,
   });
 
   if (newLevel > ps.playerLevel) {
-    notifyLevelUp(ctx, username, newLevel, newSkillPoints);
+    const newBalance = addPoolBalance(ctx, username, 'general', pointsGained);
+    notifyLevelUp(ctx, username, newLevel, newBalance);
   }
 
   addResource(ctx, username, def.yieldResourceId, gain);
@@ -1693,7 +1710,11 @@ export const upgradeSkill = spacetimedb.reducer(
     const def = ctx.db.skillDefinition.skillId.find(skillId);
     if (def === null) throw new SenderError('Unknown skill');
 
-    if (ps.skillPoints < def.costSkillPoints) {
+    const treeDef = ctx.db.skillTreeDefinition.treeId.find(def.treeId);
+    if (treeDef === null) throw new SenderError('Tree definition missing');
+
+    const poolRow = getPoolBalanceRow(ctx, s.username, treeDef.pointPoolId);
+    if (poolRow.amount < def.costSkillPoints) {
       throw new SenderError('Not enough skill points');
     }
 
@@ -1732,25 +1753,58 @@ export const upgradeSkill = spacetimedb.reducer(
       throw new SenderError('Skill already at max level');
     }
 
+    // Snapshot Beginner completion state BEFORE the level increment so we can
+    // detect the spend that just completed the tree. Avoids re-firing on
+    // every subsequent spend.
+    const beginnerCompletedBefore = isTreeCompleted(ctx, s.username, 'beginner');
+
+    const newLevel = currentLevel + 1;
     if (existing !== null) {
       ctx.db.playerSkill.id.update({
         ...existing,
-        level: existing.level + 1,
+        level: newLevel,
       });
     } else {
       ctx.db.playerSkill.insert({
         id: 0n,
         username: s.username,
         skillId,
-        level: 1,
+        level: newLevel,
       });
     }
 
-    ctx.db.playerState.username.update({
-      ...ps,
-      skillPoints: ps.skillPoints - def.costSkillPoints,
-      updatedAt: ctx.timestamp,
+    ctx.db.playerSkillPointBalance.id.update({
+      ...poolRow,
+      amount: poolRow.amount - def.costSkillPoints,
     });
+
+    // Apply stat grants for this skill — upserts replace prior level's contribution.
+    for (const grant of ctx.db.skillStatGrant.skill_stat_grant_skill.filter(skillId)) {
+      const sourceKey = `${s.username}:skill:${skillId}:${grant.statId}`;
+      setStatSource(
+        ctx,
+        sourceKey,
+        s.username,
+        grant.statId,
+        newLevel * grant.amountPerLevel
+      );
+    }
+
+    // Beginner-complete notification: fires once on the spend that maxes the
+    // last Beginner node. dedupeKey ensures a single notification survives
+    // re-deploys / refunds.
+    if (def.treeId === 'beginner' && !beginnerCompletedBefore) {
+      if (isTreeCompleted(ctx, s.username, 'beginner')) {
+        insertNotification(
+          ctx,
+          s.username,
+          'system',
+          'Beginner Skill Tree complete — Intermediate tab unlocked.',
+          undefined,
+          'tree_complete:beginner'
+        );
+      }
+    }
   }
 );
 
@@ -1943,14 +1997,13 @@ export const cheatAddLevel = spacetimedb.reducer(ctx => {
   const ps = ctx.db.playerState.username.find(s.username);
   if (ps === null) throw new SenderError('Player state missing');
   const newLevel = ps.playerLevel + 1;
-  const newSkillPoints = ps.skillPoints + 1;
   ctx.db.playerState.username.update({
     ...ps,
     playerLevel: newLevel,
-    skillPoints: newSkillPoints,
     updatedAt: ctx.timestamp,
   });
-  notifyLevelUp(ctx, s.username, newLevel, newSkillPoints);
+  const newBalance = addPoolBalance(ctx, s.username, 'general', 1);
+  notifyLevelUp(ctx, s.username, newLevel, newBalance);
 });
 
 export const cheatAddScrap = spacetimedb.reducer(ctx => {
@@ -1963,6 +2016,13 @@ export const cheatAddScrap = spacetimedb.reducer(ctx => {
     scrap: ps.scrap + 10000n,
     updatedAt: ctx.timestamp,
   });
+});
+
+// Idempotently seeds the four core stat definitions. Safe to call repeatedly —
+// existing rows are skipped. Needed because init only runs on first publish, but
+// stat_definition was added after the initial deployment.
+export const seedStats = spacetimedb.reducer(ctx => {
+  seedStatDefinitions(ctx);
 });
 
 const MAX_CHAT_BODY = 500;

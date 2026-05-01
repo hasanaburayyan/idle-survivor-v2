@@ -9,6 +9,7 @@ const KIND_LABEL: Record<string, string> = {
   GroupInvite: 'Group invite',
   GuildInvite: 'Guild invite',
   MinigameInvite: 'Minigame invite',
+  DefensiveBattleVote: 'Defensive Battle',
   System: 'System',
 };
 
@@ -16,6 +17,7 @@ const KIND_GLYPH: Record<string, string> = {
   GroupInvite: '👥',
   GuildInvite: '🏰',
   MinigameInvite: '🎮',
+  DefensiveBattleVote: '⚔',
   System: '✦',
 };
 
@@ -175,6 +177,7 @@ function NotificationRow({ notification }: { notification: Notification }) {
   const decline = useReducer(reducers.declineInvitation);
   const acceptMg = useReducer(reducers.acceptMinigameInvite);
   const declineMg = useReducer(reducers.declineMinigameInvite);
+  const voteBattle = useReducer(reducers.voteDefensiveBattle);
   const dismiss = useReducer(reducers.deleteNotification);
   const [busy, setBusy] = useState(false);
 
@@ -203,6 +206,8 @@ function NotificationRow({ notification }: { notification: Notification }) {
         await accept({ invitationId: refId });
       } else if (kindTag === 'MinigameInvite') {
         await acceptMg({ inviteId: refId });
+      } else if (kindTag === 'DefensiveBattleVote') {
+        await voteBattle({ sessionId: refId, voteYay: true });
       }
     } catch {
       /* ignore */
@@ -220,6 +225,8 @@ function NotificationRow({ notification }: { notification: Notification }) {
         await decline({ invitationId: refId });
       } else if (kindTag === 'MinigameInvite') {
         await declineMg({ inviteId: refId });
+      } else if (kindTag === 'DefensiveBattleVote') {
+        await voteBattle({ sessionId: refId, voteYay: false });
       }
     } catch {
       /* ignore */
@@ -228,8 +235,11 @@ function NotificationRow({ notification }: { notification: Notification }) {
     }
   };
 
+  const isBattleVote = kindTag === 'DefensiveBattleVote';
   const showAcceptDecline =
-    (kindTag === 'GroupInvite' || kindTag === 'MinigameInvite') &&
+    (kindTag === 'GroupInvite' ||
+      kindTag === 'MinigameInvite' ||
+      isBattleVote) &&
     notification.actionableRefId !== undefined;
 
   return (
@@ -248,7 +258,7 @@ function NotificationRow({ notification }: { notification: Notification }) {
               className="rounded-lg bg-emerald-500 px-3 py-1"
             >
               <Text className="text-[11px] font-medium text-slate-950">
-                Accept
+                {isBattleVote ? 'Yay' : 'Accept'}
               </Text>
             </SafePressable>
             <SafePressable
@@ -257,7 +267,7 @@ function NotificationRow({ notification }: { notification: Notification }) {
               className="rounded-lg bg-slate-800 px-3 py-1"
             >
               <Text className="text-[11px] font-medium text-slate-100">
-                Decline
+                {isBattleVote ? 'Nay' : 'Decline'}
               </Text>
             </SafePressable>
           </View>

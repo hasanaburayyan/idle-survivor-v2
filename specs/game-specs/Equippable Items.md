@@ -1,3 +1,5 @@
+> **⚠️ SUPERSEDED by `Equipment & Armory Stat Rework.md`.** Items no longer carry direct per-game effects (e.g. "+10 HP in Defensive Battle"). Each item now rolls one or more stat affixes (Vigor / Power / Focus / Fortune) that flow through the Core Stats System. This file is retained for historical context only — see the rework spec for the current design.
+
 Overview:
 Every equippable item has a template from which it is created. It will have a "Slot", which Slot in the players "Equipment" menu that is occupies. "Effect" is the stat or set of stats that a piece of Equipment targets, and increases or decreases. "Power" is a PER EFFECT stat that applies to how much it alters the listed stat. Here is some example pieces of gear:
 
