@@ -29,6 +29,8 @@ import {
   groupContributionEvent,
   chatMessage,
   notification,
+  tutorialStepDefinition,
+  playerTutorialProgress,
 } from './tables_core';
 import {
   insertNotification,
@@ -243,20 +245,6 @@ const SKILL_SEEDS: SkillSeed[] = [
     positionY: 800,
     sortOrder: 11,
   },
-  {
-    skillId: 'unlock_classes',
-    name: 'Unlock Classes',
-    description:
-      'Completes the tutorial tree. Additional class system placeholder.',
-    maxLevel: 1,
-    prerequisiteSkillId: 'medicine_multiplier',
-    prerequisiteLevel: 4,
-    prerequisitePlayerLevel: 30,
-    costSkillPoints: 0,
-    positionX: 500,
-    positionY: 400,
-    sortOrder: 12,
-  },
 ];
 
 interface SkillPrereqSeed {
@@ -265,13 +253,7 @@ interface SkillPrereqSeed {
   requiredLevel: number;
 }
 
-const SKILL_PREREQ_SEEDS: SkillPrereqSeed[] = [
-  { skillId: 'unlock_classes', requiredSkillId: 'unlock_shelter', requiredLevel: 1 },
-  { skillId: 'unlock_classes', requiredSkillId: 'parts_multiplier', requiredLevel: 4 },
-  { skillId: 'unlock_classes', requiredSkillId: 'metal_multiplier', requiredLevel: 4 },
-  { skillId: 'unlock_classes', requiredSkillId: 'fabric_multiplier', requiredLevel: 4 },
-  { skillId: 'unlock_classes', requiredSkillId: 'food_multiplier', requiredLevel: 4 },
-];
+const SKILL_PREREQ_SEEDS: SkillPrereqSeed[] = [];
 
 interface LocationSeed {
   locationKey: string;
@@ -604,6 +586,158 @@ function applyUpgradeSeeds(): StructureUpgradeSeed[] {
   }));
 }
 
+interface TutorialStepSeed {
+  stepId: string;
+  sortOrder: number;
+  prereqStepId: string;
+  triggerCondition:
+    | { tag: 'chained' }
+    | { tag: 'playerLevelAtLeast'; value: { level: number } }
+    | { tag: 'skillPurchased'; value: { skillId: string; minLevel: number } }
+    | { tag: 'activityPerformed'; value: { activityId: string; minTimes: number } }
+    | { tag: 'treeCompleted'; value: { treeId: string } };
+  headline: string;
+  body: string;
+  primaryCtaLabel: string;
+  spotlightTargetKey: string;
+  tone: { tag: 'inCharacter' } | { tag: 'meta' };
+}
+
+const TUTORIAL_STEP_SEEDS: TutorialStepSeed[] = [
+  {
+    stepId: 'welcome',
+    sortOrder: 1,
+    prereqStepId: '',
+    triggerCondition: { tag: 'chained' },
+    headline: 'The wastes.',
+    body: "It's quiet for now. You're going to need scrap — bottle caps, scrap metal, anything that survived. Start by scavenging at your feet.",
+    primaryCtaLabel: 'Begin.',
+    spotlightTargetKey: '',
+    tone: { tag: 'inCharacter' },
+  },
+  {
+    stepId: 'try_scavenge',
+    sortOrder: 2,
+    prereqStepId: 'welcome',
+    triggerCondition: { tag: 'chained' },
+    headline: 'Scavenge.',
+    body: 'Tap the Scavenge button to gather scrap. Keep tapping — every press counts.',
+    primaryCtaLabel: 'Got it.',
+    spotlightTargetKey: 'activity_button:scavenge',
+    tone: { tag: 'meta' },
+  },
+  {
+    stepId: 'first_level_up',
+    sortOrder: 3,
+    prereqStepId: 'try_scavenge',
+    triggerCondition: { tag: 'playerLevelAtLeast', value: { level: 1 } },
+    headline: "You're learning.",
+    body: 'All that scavenging taught you something. You earned a skill point — somewhere out there, you should figure out how to spend it.',
+    primaryCtaLabel: 'Show me.',
+    spotlightTargetKey: 'tab:skill_tree',
+    tone: { tag: 'inCharacter' },
+  },
+  {
+    stepId: 'first_skill_spend',
+    sortOrder: 4,
+    prereqStepId: 'first_level_up',
+    triggerCondition: { tag: 'skillPurchased', value: { skillId: 'scavenge_multiplier', minLevel: 1 } },
+    headline: 'Scavenge Multiplier.',
+    body: 'Each level here makes scrap come in faster. And look — taking that node revealed something new. The wastes have more than just scrap.',
+    primaryCtaLabel: 'Continue.',
+    spotlightTargetKey: 'skill_node:unlock_parts',
+    tone: { tag: 'meta' },
+  },
+  {
+    stepId: 'unlock_shelter_taken',
+    sortOrder: 5,
+    prereqStepId: 'first_skill_spend',
+    triggerCondition: { tag: 'skillPurchased', value: { skillId: 'unlock_shelter', minLevel: 1 } },
+    headline: 'Shelter, in theory.',
+    body: "You unlocked the Shelter. That puts a Build Shelter activity on the Wastes — once you've built it, you can travel inside. There's room in there for a Workbench, and a Workbench will eventually automate your scavenging while you focus on bigger things. Build it when you're ready.",
+    primaryCtaLabel: 'Got it.',
+    spotlightTargetKey: '',
+    tone: { tag: 'inCharacter' },
+  },
+  {
+    stepId: 'unlock_parts_taken',
+    sortOrder: 6,
+    prereqStepId: 'first_skill_spend',
+    triggerCondition: { tag: 'skillPurchased', value: { skillId: 'unlock_parts', minLevel: 1 } },
+    headline: 'Parts.',
+    body: 'Bolts, gears, broken machinery. Worth more than scrap to anyone who can fix things. There\'s a new activity in the Wastes for finding them.',
+    primaryCtaLabel: 'Got it.',
+    spotlightTargetKey: '',
+    tone: { tag: 'inCharacter' },
+  },
+  {
+    stepId: 'unlock_metal_taken',
+    sortOrder: 7,
+    prereqStepId: 'unlock_parts_taken',
+    triggerCondition: { tag: 'skillPurchased', value: { skillId: 'unlock_metal', minLevel: 1 } },
+    headline: 'Metal.',
+    body: 'Heavier than scrap and harder to come by. Useful for building.',
+    primaryCtaLabel: 'Got it.',
+    spotlightTargetKey: '',
+    tone: { tag: 'inCharacter' },
+  },
+  {
+    stepId: 'unlock_fabric_taken',
+    sortOrder: 8,
+    prereqStepId: 'unlock_metal_taken',
+    triggerCondition: { tag: 'skillPurchased', value: { skillId: 'unlock_fabric', minLevel: 1 } },
+    headline: 'Fabric.',
+    body: 'Scraps of cloth and tarp. People will need it before the cold.',
+    primaryCtaLabel: 'Got it.',
+    spotlightTargetKey: '',
+    tone: { tag: 'inCharacter' },
+  },
+  {
+    stepId: 'unlock_food_taken',
+    sortOrder: 9,
+    prereqStepId: 'unlock_fabric_taken',
+    triggerCondition: { tag: 'skillPurchased', value: { skillId: 'unlock_food', minLevel: 1 } },
+    headline: 'Food.',
+    body: "Canned. Mostly. You'll learn to take what you can.",
+    primaryCtaLabel: 'Got it.',
+    spotlightTargetKey: '',
+    tone: { tag: 'inCharacter' },
+  },
+  {
+    stepId: 'unlock_meds_taken',
+    sortOrder: 10,
+    prereqStepId: 'unlock_food_taken',
+    triggerCondition: { tag: 'skillPurchased', value: { skillId: 'unlock_medicine', minLevel: 1 } },
+    headline: 'Medicine.',
+    body: "Painkillers, antibiotics, the occasional miracle. You've found nearly everything this stretch of wastes has to offer.",
+    primaryCtaLabel: 'Got it.',
+    spotlightTargetKey: '',
+    tone: { tag: 'inCharacter' },
+  },
+  {
+    stepId: 'shelter_built',
+    sortOrder: 11,
+    prereqStepId: 'unlock_shelter_taken',
+    triggerCondition: { tag: 'activityPerformed', value: { activityId: 'build_shelter', minTimes: 1 } },
+    headline: 'Shelter, built.',
+    body: "Walls, a roof, a place to keep what you've gathered. Travel here when you can — the Workbench you build inside is where automating your scavenging starts.",
+    primaryCtaLabel: 'Got it.',
+    spotlightTargetKey: 'tab:travel',
+    tone: { tag: 'inCharacter' },
+  },
+  {
+    stepId: 'beginner_complete',
+    sortOrder: 12,
+    prereqStepId: 'shelter_built',
+    triggerCondition: { tag: 'treeCompleted', value: { treeId: 'beginner' } },
+    headline: 'Beginner skill tree complete.',
+    body: "You've discovered every resource this region has and built your first shelter. Whatever comes next, you're ready for it.",
+    primaryCtaLabel: 'Onwards.',
+    spotlightTargetKey: '',
+    tone: { tag: 'meta' },
+  },
+];
+
 export const init = spacetimedb.init(ctx => {
   for (const seed of SKILL_SEEDS) {
     if (ctx.db.skillDefinition.skillId.find(seed.skillId) === null) {
@@ -665,6 +799,11 @@ export const init = spacetimedb.init(ctx => {
     }
     if (!exists) {
       ctx.db.activityCost.insert({ id: 0n, ...seed });
+    }
+  }
+  for (const seed of TUTORIAL_STEP_SEEDS) {
+    if (ctx.db.tutorialStepDefinition.stepId.find(seed.stepId) === null) {
+      ctx.db.tutorialStepDefinition.insert(seed);
     }
   }
   seedCardDefinitions(ctx);
@@ -792,6 +931,20 @@ export const myNotifications = spacetimedb.view(
     if (s === null) return [];
     return [
       ...ctx.db.notification.notification_recipient.filter(s.username),
+    ];
+  }
+);
+
+export const myTutorialProgress = spacetimedb.view(
+  { name: 'my_tutorial_progress', public: true },
+  t.array(playerTutorialProgress.rowType),
+  ctx => {
+    const s = ctx.db.session.identity.find(ctx.sender);
+    if (s === null) return [];
+    return [
+      ...ctx.db.playerTutorialProgress.player_tutorial_progress_username.filter(
+        s.username
+      ),
     ];
   }
 );
@@ -1918,6 +2071,108 @@ export const deleteNotification = spacetimedb.reducer(
     ctx.db.notification.notificationId.delete(notificationId);
   }
 );
+
+// ---------- Tutorial ----------
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function evaluateTutorialTrigger(ctx: any, username: string, trigger: any): boolean {
+  switch (trigger.tag) {
+    case 'chained':
+      return true;
+    case 'playerLevelAtLeast': {
+      const ps = ctx.db.playerState.username.find(username);
+      if (ps === null) return false;
+      return ps.playerLevel >= trigger.value.level;
+    }
+    case 'skillPurchased': {
+      for (const skill of ctx.db.playerSkill.player_skill_username.filter(username)) {
+        if (skill.skillId === trigger.value.skillId && skill.level >= trigger.value.minLevel) {
+          return true;
+        }
+      }
+      return false;
+    }
+    case 'activityPerformed': {
+      for (const pa of ctx.db.playerActivity.player_activity_username.filter(username)) {
+        if (pa.activityId === trigger.value.activityId && pa.timesUsed >= trigger.value.minTimes) {
+          return true;
+        }
+      }
+      return false;
+    }
+    case 'treeCompleted': {
+      // v1 — only the Beginner tree exists; check that every skill_definition is at maxLevel for this player.
+      // TODO: filter by trigger.value.treeId once skill_definition has a treeId column (Skill Tree Tiers spec).
+      const playerSkills = new Map<string, number>();
+      for (const ps of ctx.db.playerSkill.player_skill_username.filter(username)) {
+        playerSkills.set(ps.skillId, ps.level);
+      }
+      for (const def of ctx.db.skillDefinition.iter()) {
+        const lvl = playerSkills.get(def.skillId) ?? 0;
+        if (lvl < def.maxLevel) return false;
+      }
+      return true;
+    }
+  }
+  return false;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function findActiveTutorialStep(ctx: any, username: string): any | null {
+  const completed = new Set<string>();
+  for (const p of ctx.db.playerTutorialProgress.player_tutorial_progress_username.filter(username)) {
+    completed.add(p.stepId);
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const steps: any[] = [...ctx.db.tutorialStepDefinition.iter()].sort(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (a: any, b: any) => a.sortOrder - b.sortOrder
+  );
+  for (const step of steps) {
+    if (completed.has(step.stepId)) continue;
+    if (step.prereqStepId !== '' && !completed.has(step.prereqStepId)) continue;
+    if (!evaluateTutorialTrigger(ctx, username, step.triggerCondition)) continue;
+    return step;
+  }
+  return null;
+}
+
+export const completeTutorialStep = spacetimedb.reducer(
+  { stepId: t.string() },
+  (ctx, { stepId }) => {
+    const s = ctx.db.session.identity.find(ctx.sender);
+    if (s === null) throw new SenderError('Not signed in');
+    const active = findActiveTutorialStep(ctx, s.username);
+    if (active === null || active.stepId !== stepId) {
+      throw new SenderError('Step is not currently active');
+    }
+    ctx.db.playerTutorialProgress.insert({
+      id: 0n,
+      username: s.username,
+      stepId,
+      completedAt: ctx.timestamp,
+    });
+  }
+);
+
+export const skipTutorial = spacetimedb.reducer(ctx => {
+  const s = ctx.db.session.identity.find(ctx.sender);
+  if (s === null) throw new SenderError('Not signed in');
+  const completed = new Set<string>();
+  for (const p of ctx.db.playerTutorialProgress.player_tutorial_progress_username.filter(s.username)) {
+    completed.add(p.stepId);
+  }
+  for (const step of ctx.db.tutorialStepDefinition.iter()) {
+    if (!completed.has(step.stepId)) {
+      ctx.db.playerTutorialProgress.insert({
+        id: 0n,
+        username: s.username,
+        stepId: step.stepId,
+        completedAt: ctx.timestamp,
+      });
+    }
+  }
+});
 
 // ---------- Groups ----------
 

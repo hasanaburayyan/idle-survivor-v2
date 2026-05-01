@@ -6,6 +6,7 @@ import { useReducer, useTable } from 'spacetimedb/react';
 import { formatScrap } from '../lib/scavenge';
 import { computeScavengeGain, upgradeCost } from '../lib/progression';
 import { useScrapFlow } from './ScrapFlow';
+import { useSpotlightTarget } from './SpotlightTargetRegistry';
 
 export interface ActivityDef {
   activityId: string;
@@ -103,6 +104,9 @@ function ScavengeCell({
 
   const pressAnim = useRef(new Animated.Value(1)).current;
   const buttonRef = useRef<View | null>(null);
+  const spotlight = useSpotlightTarget(
+    def.activityId === 'scavenge' ? 'activity_button:scavenge' : ''
+  );
 
   const activityLevel = state?.level ?? 0;
   const scrap = playerStates[0]?.scrap ?? 0n;
@@ -165,29 +169,31 @@ function ScavengeCell({
       >
         {def.name}
       </Text>
-      <Animated.View style={{ transform: [{ scale: pressAnim }] }}>
-        <SafePressable
-          ref={r => (buttonRef.current = r)}
-          onPress={onScavenge}
-          disabled={!canAfford}
-          className={`items-center justify-center w-16 h-16 rounded-full ${
-            canAfford ? 'bg-amber-500' : 'bg-slate-800'
-          }`}
-          style={
-            canAfford
-              ? {
-                  shadowColor: '#f59e0b',
-                  shadowOffset: { width: 0, height: 6 },
-                  shadowOpacity: 0.5,
-                  shadowRadius: 12,
-                  elevation: 6,
-                }
-              : undefined
-          }
-        >
-          <Text className="text-2xl">{def.icon}</Text>
-        </SafePressable>
-      </Animated.View>
+      <View ref={spotlight.ref} onLayout={spotlight.onLayout}>
+        <Animated.View style={{ transform: [{ scale: pressAnim }] }}>
+          <SafePressable
+            ref={r => (buttonRef.current = r)}
+            onPress={onScavenge}
+            disabled={!canAfford}
+            className={`items-center justify-center w-16 h-16 rounded-full ${
+              canAfford ? 'bg-amber-500' : 'bg-slate-800'
+            }`}
+            style={
+              canAfford
+                ? {
+                    shadowColor: '#f59e0b',
+                    shadowOffset: { width: 0, height: 6 },
+                    shadowOpacity: 0.5,
+                    shadowRadius: 12,
+                    elevation: 6,
+                  }
+                : undefined
+            }
+          >
+            <Text className="text-2xl">{def.icon}</Text>
+          </SafePressable>
+        </Animated.View>
+      </View>
       {yieldDef ? (
         <Text className="text-[10px] text-slate-400">
           +{formatScrap(power)} {yieldDef.icon}

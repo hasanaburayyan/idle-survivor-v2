@@ -25,6 +25,8 @@ import {
   groupContributionEvent,
   chatMessage,
   notification,
+  tutorialStepDefinition,
+  playerTutorialProgress,
 } from './tables_core';
 import {
   minigameSession,
@@ -70,6 +72,8 @@ const spacetimedb = schema({
   groupContributionEvent,
   chatMessage,
   notification,
+  tutorialStepDefinition,
+  playerTutorialProgress,
   minigameSession,
   minigameMember,
   minigameInvite,

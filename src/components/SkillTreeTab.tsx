@@ -8,6 +8,7 @@ import {
 } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import SafePressable from './SafePressable';
+import { useSpotlightTarget } from './SpotlightTargetRegistry';
 import Svg, { Line } from 'react-native-svg';
 import { useReducer, useTable } from 'spacetimedb/react';
 import { reducers, tables } from '../module_bindings';
@@ -354,6 +355,7 @@ export default function SkillTreeTab() {
                 onPress={() => setSelected(def.skillId)}
                 x={originX + pos.x - NODE_DIAMETER / 2}
                 y={originY + pos.y - NODE_DIAMETER / 2}
+                spotlightKey={`skill_node:${def.skillId}`}
               />
             );
           })}
@@ -421,6 +423,7 @@ function SkillNode({
   onPress,
   x,
   y,
+  spotlightKey,
 }: {
   def: SkillDef;
   level: number;
@@ -428,7 +431,9 @@ function SkillNode({
   onPress: () => void;
   x: number;
   y: number;
+  spotlightKey?: string;
 }) {
+  const spotlight = useSpotlightTarget(spotlightKey ?? '');
   const unlocked = level > 0;
   const borderClass = selected
     ? 'border-amber-400'
@@ -447,6 +452,8 @@ function SkillNode({
     : null;
   return (
     <SafePressable
+      ref={spotlight.ref}
+      onLayout={spotlight.onLayout}
       onPress={onPress}
       style={{
         position: 'absolute',
