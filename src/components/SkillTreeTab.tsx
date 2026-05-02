@@ -286,20 +286,32 @@ export default function SkillTreeTab() {
   }, [sorted]);
 
   // Per-tree progress: { maxed, total } counts. Used by the tab strip.
-  // Infinite-scaling nodes are excluded from total: they have no hard max,
-  // so including them would make the "done" badge never light for class trees.
-  // This mirrors the server's allNodesMaxed completion rule.
+  // Infinite-scaling nodes are excluded — they have no hard max.
+  // Capstone branches count as ONE slot total: only one of the N nodes in a
+  // branch can ever be taken (the others lock out), so counting them
+  // individually would make the "done" badge unreachable.
   const progressByTree = useMemo(() => {
     const m = new Map<string, { maxed: number; total: number }>();
     for (const tree of sortedTrees) {
       const skills = skillsByTree.get(tree.treeId) ?? [];
       let maxed = 0;
       let total = 0;
+      const capstoneBranches = new Map<string, { anyMaxed: boolean }>();
       for (const def of skills as SkillDef[]) {
-        if (def.infiniteScaling) continue; // no cap — never counts toward completion
-        total += 1;
+        if (def.infiniteScaling) continue;
         const lvl = levelBySkill.get(def.skillId) ?? 0;
-        if (lvl >= def.maxLevel) maxed += 1;
+        if (def.capstoneBranchId) {
+          const entry = capstoneBranches.get(def.capstoneBranchId) ?? { anyMaxed: false };
+          if (lvl >= def.maxLevel) entry.anyMaxed = true;
+          capstoneBranches.set(def.capstoneBranchId, entry);
+        } else {
+          total += 1;
+          if (lvl >= def.maxLevel) maxed += 1;
+        }
+      }
+      for (const branch of capstoneBranches.values()) {
+        total += 1;
+        if (branch.anyMaxed) maxed += 1;
       }
       m.set(tree.treeId, { maxed, total });
     }

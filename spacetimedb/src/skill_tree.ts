@@ -13,10 +13,11 @@ import {
 export function isTreeCompleted(ctx: any, username: string, treeId: string): boolean {
   let total = 0;
   let maxedCount = 0;
+  // Capstone branches: only one of N nodes can ever be taken (others lock out).
+  // Count each branch as a single slot, maxed when any node in it is maxed.
+  const capstoneBranches = new Map<string, boolean>();
   for (const def of ctx.db.skillDefinition.skill_definition_tree.filter(treeId)) {
-    // infiniteScaling nodes have no level cap and are excluded from completion checks.
     if (def.infiniteScaling === true) continue;
-    total += 1;
     let level = 0;
     for (const ps of ctx.db.playerSkill.player_skill_username.filter(username)) {
       if (ps.skillId === def.skillId) {
@@ -24,7 +25,17 @@ export function isTreeCompleted(ctx: any, username: string, treeId: string): boo
         break;
       }
     }
-    if (level >= def.maxLevel) maxedCount += 1;
+    if (def.capstoneBranchId && def.capstoneBranchId !== '') {
+      const prev = capstoneBranches.get(def.capstoneBranchId) ?? false;
+      capstoneBranches.set(def.capstoneBranchId, prev || level >= def.maxLevel);
+    } else {
+      total += 1;
+      if (level >= def.maxLevel) maxedCount += 1;
+    }
+  }
+  for (const anyMaxed of capstoneBranches.values()) {
+    total += 1;
+    if (anyMaxed) maxedCount += 1;
   }
   return total > 0 && maxedCount === total;
 }
@@ -106,11 +117,21 @@ const ORDERED_TREE_IDS = [
 function isTreeCompletedFromMap(ctx: any, treeId: string, skillLevels: Map<string, number>): boolean {
   let total = 0;
   let maxedCount = 0;
+  const capstoneBranches = new Map<string, boolean>();
   for (const def of ctx.db.skillDefinition.skill_definition_tree.filter(treeId)) {
     if (def.infiniteScaling === true) continue;
-    total += 1;
     const level = skillLevels.get(def.skillId) ?? 0;
-    if (level >= def.maxLevel) maxedCount += 1;
+    if (def.capstoneBranchId && def.capstoneBranchId !== '') {
+      const prev = capstoneBranches.get(def.capstoneBranchId) ?? false;
+      capstoneBranches.set(def.capstoneBranchId, prev || level >= def.maxLevel);
+    } else {
+      total += 1;
+      if (level >= def.maxLevel) maxedCount += 1;
+    }
+  }
+  for (const anyMaxed of capstoneBranches.values()) {
+    total += 1;
+    if (anyMaxed) maxedCount += 1;
   }
   return total > 0 && maxedCount === total;
 }
