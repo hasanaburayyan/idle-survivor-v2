@@ -108,9 +108,12 @@ function ScavengeCell({
     def.activityId === 'scavenge' ? 'activity_button:scavenge' : ''
   );
 
+  const [capabilityTotals] = useTable(tables.myCapabilityTotals);
+
   const activityLevel = state?.level ?? 0;
   const scrap = playerStates[0]?.scrap ?? 0n;
   const comboBp = playerStates[0]?.comboBp ?? 0;
+  const wideNetBp = capabilityTotals.find(c => c.effectKey === 'wide_net_pct_bp')?.total ?? 0;
 
   const prefix = def.skillChainPrefix || 'scavenge';
   const multiplierLvl =
@@ -219,6 +222,9 @@ function ScavengeCell({
         <Text className="text-[10px] text-slate-400">
           +{formatScrap(power)} {yieldDef.icon}
         </Text>
+      ) : null}
+      {wideNetBp > 0 ? (
+        <Text className="text-[10px] text-blue-400">✦ Wide Net</Text>
       ) : null}
       {costs.length > 0 ? (
         <View className="flex-row flex-wrap justify-center gap-x-1.5 gap-y-0.5">

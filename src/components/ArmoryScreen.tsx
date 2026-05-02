@@ -26,6 +26,7 @@ export default function ArmoryScreen({ onBack }: ArmoryScreenProps) {
   const [equipment] = useTable(tables.myEquipment);
   const [statDefs] = useTable(tables.statDefinition);
   const [slots] = useTable(tables.myVisibleEquipmentSlots);
+  const [capabilityTotals] = useTable(tables.myCapabilityTotals);
 
   const upgradeArmory = useReducer(reducers.upgradeArmory);
   const craftItem = useReducer(reducers.craftItem);
@@ -43,6 +44,13 @@ export default function ArmoryScreen({ onBack }: ArmoryScreenProps) {
     for (const r of resources) m.set(r.resourceId, r.amount);
     return m;
   }, [resources, scrap]);
+
+  const reductionBp = capabilityTotals.find(c => c.effectKey === 'armory_cost_reduction_bp')?.total ?? 0;
+  const applyArmoryDiscount = (rawCost: bigint): bigint => {
+    if (reductionBp <= 0) return rawCost;
+    const reduced = (rawCost * BigInt(10000 - reductionBp)) / 10000n;
+    return reduced < 1n ? 1n : reduced;
+  };
 
   const statNameById = useMemo(() => {
     const m = new Map<string, string>();
@@ -88,8 +96,11 @@ export default function ArmoryScreen({ onBack }: ArmoryScreenProps) {
 
   const canAffordUpgrade = useMemo(() => {
     if (atMax || nextLevelCosts.length === 0) return false;
-    return nextLevelCosts.every(c => (resourceMap.get(c.resourceId) ?? 0n) >= c.amount);
-  }, [nextLevelCosts, resourceMap, atMax]);
+    return nextLevelCosts.every(
+      c => (resourceMap.get(c.resourceId) ?? 0n) >= applyArmoryDiscount(c.amount)
+    );
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nextLevelCosts, resourceMap, atMax, reductionBp]);
 
   const sortedRecipes = useMemo(() => {
     return [...recipes].sort((a, b) => a.sortOrder - b.sortOrder);
@@ -202,8 +213,9 @@ export default function ArmoryScreen({ onBack }: ArmoryScreenProps) {
               </Text>
               <View className="flex-row flex-wrap gap-1">
                 {nextLevelCosts.map(c => {
+                  const discounted = applyArmoryDiscount(c.amount);
                   const have = resourceMap.get(c.resourceId) ?? 0n;
-                  const enough = have >= c.amount;
+                  const enough = have >= discounted;
                   return (
                     <View
                       key={c.resourceId}
@@ -212,7 +224,10 @@ export default function ArmoryScreen({ onBack }: ArmoryScreenProps) {
                       <Text
                         className={`text-[11px] ${enough ? 'text-slate-300' : 'text-rose-300'}`}
                       >
-                        {c.amount.toString()} {c.resourceId}
+                        {discounted.toString()} {c.resourceId}
+                        {reductionBp > 0 ? (
+                          <Text className="text-[10px] text-emerald-400"> ↓</Text>
+                        ) : null}
                       </Text>
                     </View>
                   );

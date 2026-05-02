@@ -47,11 +47,14 @@ export default function StructureDetailScreen({
   const [playerUpgrades] = useTable(tables.myStructureUpgrades);
   const [playerStates] = useTable(tables.myPlayerState);
   const [activityDefs] = useTable(tables.activityDefinition);
+  const [capabilityTotals] = useTable(tables.myCapabilityTotals);
 
   const slot = useReducer(reducers.slotActivity);
   const clear = useReducer(reducers.clearSlot);
 
   const scrap = playerStates[0]?.scrap ?? 0n;
+  const totalAutomationSlots =
+    1 + (capabilityTotals.find(c => c.effectKey === 'automation_slot')?.total ?? 0);
 
   const upgrades = [...allUpgrades]
     .filter(u => u.structureId === def.structureId)
@@ -139,6 +142,11 @@ export default function StructureDetailScreen({
         <View className="rounded-xl bg-slate-950 border border-slate-800 px-4 py-3">
           <Text className="text-[11px] uppercase tracking-widest text-slate-500">
             Automation slot
+            {totalAutomationSlots > 1 ? (
+              <Text className="text-[11px] text-slate-600">
+                {' '}· {totalAutomationSlots} total
+              </Text>
+            ) : null}
           </Text>
           {slottedDef ? (
             <View className="flex-row items-center justify-between mt-1">
