@@ -11,6 +11,7 @@
     "build:web": "expo export --platform web",
     "spacetime:generate": "spacetime generate --lang typescript --out-dir src/module_bindings --module-path spacetimedb",
     "spacetime:publish:local": "spacetime publish --module-path spacetimedb --server local idle-survivor",
+    "spacetime:publish:selfhost": "spacetime publish --module-path spacetimedb --server selfhost idle-survivor",
     "spacetime:publish": "spacetime publish --module-path spacetimedb --server maincloud idle-survivor"
   },
   "dependencies": {

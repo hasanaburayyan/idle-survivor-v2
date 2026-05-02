@@ -10,7 +10,7 @@ import { DbConnection, ErrorContext } from './src/module_bindings';
 import Root from './src/Root';
 
 const HOST =
-  process.env.EXPO_PUBLIC_SPACETIMEDB_HOST ?? 'ws://127.0.0.1:3000';
+  process.env.EXPO_PUBLIC_SPACETIMEDB_HOST ?? 'wss://christian.taildbf0f1.ts.net';
 const DB_NAME =
   process.env.EXPO_PUBLIC_SPACETIMEDB_DB_NAME ?? 'idle-survivor';
 const TOKEN_KEY = `${HOST}/${DB_NAME}/auth_token`;

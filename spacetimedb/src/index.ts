@@ -93,6 +93,7 @@ export {
   myDefensiveBattleSession,
   myDefensiveBattleParticipants,
   myDefensiveBattleHand,
+  partyDefensiveBattleDecks,
   myDefensiveBattleZombies,
   myDefensiveBattleStatSnapshot,
   myDefensiveBattleLog,
@@ -817,6 +818,11 @@ export const onDisconnect = spacetimedb.clientDisconnected(ctx => {
   const s = ctx.db.session.identity.find(ctx.sender);
   if (s !== null) {
     handleDefensiveBattleDisconnect(ctx, s.username);
+    // Clean up the per-identity session row. Without this, stale rows from
+    // prior browser instances (Expo restart, hard reload, etc.) accumulate
+    // and any of them timing out triggers spurious disconnect handling for
+    // the same username.
+    ctx.db.session.identity.delete(ctx.sender);
   }
 });
 

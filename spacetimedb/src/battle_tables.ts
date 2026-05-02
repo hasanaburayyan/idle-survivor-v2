@@ -32,6 +32,12 @@ export const BattleEventKind = t.enum('BattleEventKind', {
   battleEnded: t.unit(),
 });
 
+export const ZombieKind = t.enum('ZombieKind', {
+  basic: t.unit(),
+  armored: t.unit(),
+  juggernaut: t.unit(),
+});
+
 // ---------- Session ----------
 
 export const defensiveBattleSession = table(
@@ -136,11 +142,26 @@ export const defensiveBattleZombie = table(
     currentHp: t.i32(),
     maxHp: t.u32(),
     isDead: t.bool(),
+    // Appended (not reordered) so existing rows can migrate without data loss.
+    kind: ZombieKind.default({ tag: 'basic' }),
+    // Default 1 (not 0) workaround: SpacetimeDB TS SDK drops falsy default
+    // values (`if (meta.defaultValue)` check). spawnWave always sets armor
+    // explicitly, so this default only applies to historical rows which are
+    // already dead — no gameplay impact.
+    armor: t.u32().default(1),
+    // Per-zombie threat: sum of live attack values = self-damage tick on the
+    // actor's next play. basic=1, armored=1, juggernaut=3 (set in spawnWave).
+    // Default 1 happens to be the correct basic value; same falsy-default
+    // workaround as armor.
+    attack: t.u32().default(1),
   }
 );
 
-// ---------- Hand slots ----------
-
+// ---------- Hand slots (DEPRECATED, kept for schema migration only) ----------
+// Replaced by defensive_battle_deck_card under Cycling Deck. SpacetimeDB
+// rejects table-drop migrations without --delete-data, so we leave the empty
+// schema entry in place and stop reading/writing it. Drop in a future
+// deliberate clear-database publish.
 export const defensiveBattleHandSlot = table(
   {
     name: 'defensive_battle_hand_slot',
@@ -157,6 +178,32 @@ export const defensiveBattleHandSlot = table(
     sessionId: t.u64(),
     username: t.string(),
     handIndex: t.u32(),
+    actionId: t.string(),
+  }
+);
+
+// ---------- Deck cards ----------
+// Cycling Deck replaces the old random-refill hand_slot model. Each row is one
+// card in a player's deck for the duration of a battle. Hand = the handSize
+// rows with the lowest deckOrder; played cards get bumped to maxDeckOrder+1
+// to cycle to the back. See specs/game-specs/Cycling Deck.md.
+
+export const defensiveBattleDeckCard = table(
+  {
+    name: 'defensive_battle_deck_card',
+    indexes: [
+      {
+        accessor: 'defensive_battle_deck_card_session',
+        algorithm: 'btree',
+        columns: ['sessionId'],
+      },
+    ],
+  },
+  {
+    id: t.u64().primaryKey().autoInc(),
+    sessionId: t.u64(),
+    username: t.string(),
+    deckOrder: t.u32(),
     actionId: t.string(),
   }
 );

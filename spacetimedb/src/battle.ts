@@ -9,7 +9,7 @@ import {
   defensiveBattleParticipant,
   defensiveBattleStatSnapshot,
   defensiveBattleZombie,
-  defensiveBattleHandSlot,
+  defensiveBattleDeckCard,
   defensiveBattleLog,
   defensiveBattleVoteCancelJob,
   voteCancelRef,
@@ -212,21 +212,107 @@ function cleanupVoteNotifications(ctx: any, sessionId: bigint) {
 }
 
 // ---------- Wave generation ----------
+//
+// Wave composition:
+//   - Basic: spawned every wave; HP scales lightly with wave.
+//   - Armored: from wave 3+, blocks N damage instances (Pierce ignores).
+//   - Juggernaut: from wave 5+, massive HP pool punishing spread AoE.
+//
+// Counts grow slowly so the game stays winnable for solo / fresh players.
+// Total roster size is unchanged from the original formula — kinds replace
+// some basic slots rather than adding to them.
+
+function juggernautCountForWave(wave: number): number {
+  if (wave < 5) return 0;
+  return 1 + Math.floor((wave - 5) / 4);
+}
+
+function armoredCountForWave(wave: number): number {
+  if (wave < 3) return 0;
+  return 1 + Math.floor((wave - 3) / 3);
+}
+
+function armorForWave(wave: number): number {
+  if (wave < 3) return 0;
+  const stacks = 1 + Math.floor((wave - 3) / 3);
+  return Math.min(4, stacks);
+}
+
+function juggernautHpForWave(wave: number): number {
+  return 20 + 8 * wave;
+}
+
+// Per-zombie threat values: sum of live attacks = self-damage tick on the
+// actor's next play. Juggernauts are the priority kill — surviving juggs
+// drive the tick up by 3 each. Basic + armored share attack=1 because armored
+// is already a defensive nuisance via its armor stacks; doubling threat with
+// attack would make armored oppressive.
+const ATTACK_BY_KIND: Record<'basic' | 'armored' | 'juggernaut', number> = {
+  basic: 1,
+  armored: 1,
+  juggernaut: 3,
+};
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function spawnWave(ctx: any, session: any, livingCount: number): any {
   const wave = session.currentWave + 1;
-  const count = ZOMBIE_BASE_COUNT + ZOMBIE_WAVE_SCALAR * wave + ZOMBIE_PER_PLAYER_BONUS * livingCount;
-  // Reserve 'count' draws for HP rolls.
-  const { rng, updatedSession } = rngForSession(ctx, session, count);
-  for (let i = 0; i < count; i++) {
+  const total = ZOMBIE_BASE_COUNT + ZOMBIE_WAVE_SCALAR * wave + ZOMBIE_PER_PLAYER_BONUS * livingCount;
+
+  let numJuggs = juggernautCountForWave(wave);
+  let numArmored = armoredCountForWave(wave);
+  // Never let juggs+armored eat more than half the wave — keep room for basics
+  // so AoE has something to chew on and the wave doesn't degenerate.
+  const halfCap = Math.max(1, Math.floor(total / 2));
+  if (numJuggs + numArmored > halfCap) {
+    if (numJuggs > halfCap) numJuggs = halfCap;
+    numArmored = Math.max(0, halfCap - numJuggs);
+  }
+  const numBasic = Math.max(1, total - numJuggs - numArmored);
+  const count = numBasic + numArmored + numJuggs;
+  const armor = armorForWave(wave);
+  const juggHp = juggernautHpForWave(wave);
+
+  // Reserve one draw per basic / armored zombie for HP roll. Juggernauts
+  // have deterministic HP so consume no draws.
+  const { rng, updatedSession } = rngForSession(ctx, session, numBasic + numArmored);
+  for (let i = 0; i < numBasic; i++) {
     const hp = rngIntInRange(rng, 1, wave);
     ctx.db.defensiveBattleZombie.insert({
       id: 0n,
       sessionId: session.sessionId,
       waveNumber: wave,
+      kind: { tag: 'basic' },
       currentHp: hp,
       maxHp: hp,
+      armor: 0,
+      attack: ATTACK_BY_KIND.basic,
+      isDead: false,
+    });
+  }
+  for (let i = 0; i < numArmored; i++) {
+    const hp = rngIntInRange(rng, 1, wave);
+    ctx.db.defensiveBattleZombie.insert({
+      id: 0n,
+      sessionId: session.sessionId,
+      waveNumber: wave,
+      kind: { tag: 'armored' },
+      currentHp: hp,
+      maxHp: hp,
+      armor,
+      attack: ATTACK_BY_KIND.armored,
+      isDead: false,
+    });
+  }
+  for (let i = 0; i < numJuggs; i++) {
+    ctx.db.defensiveBattleZombie.insert({
+      id: 0n,
+      sessionId: session.sessionId,
+      waveNumber: wave,
+      kind: { tag: 'juggernaut' },
+      currentHp: juggHp,
+      maxHp: juggHp,
+      armor: 0,
+      attack: ATTACK_BY_KIND.juggernaut,
       isDead: false,
     });
   }
@@ -235,34 +321,28 @@ function spawnWave(ctx: any, session: any, livingCount: number): any {
   logEvent(ctx, session.sessionId, '', 'waveStarted', {
     wave,
     zombieCount: count,
+    basicCount: numBasic,
+    armoredCount: numArmored,
+    juggernautCount: numJuggs,
   });
   return next;
 }
 
-// ---------- Hand draw ----------
+// ---------- Deck helpers ----------
+// Cycling Deck: each player has a deck snapshotted from their loadout at battle
+// start. Hand = the handSize cards with lowest deckOrder. Played cards get
+// bumped to maxDeckOrder+1 to rotate to the back. No random refill.
 
+// Returns the player's deck cards sorted by deckOrder ascending (top first).
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function drawActionForUsername(ctx: any, rng: BattleRng, username: string): string | null {
-  const slots = [...ctx.db.playerActionLoadout.player_action_loadout_username.filter(username)];
-  if (slots.length === 0) return null;
-  const idx = rngIntInRange(rng, 0, slots.length - 1);
-  return slots[idx]!.actionId;
-}
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function refillHand(ctx: any, session: any, username: string, handIndex: number): any {
-  const { rng, updatedSession } = rngForSession(ctx, session, 1);
-  const newAction = drawActionForUsername(ctx, rng, username);
-  for (const slot of ctx.db.defensiveBattleHandSlot.defensive_battle_hand_slot_session.filter(session.sessionId)) {
-    if (slot.username === username && slot.handIndex === handIndex) {
-      ctx.db.defensiveBattleHandSlot.id.update({
-        ...slot,
-        actionId: newAction ?? slot.actionId,
-      });
-      break;
-    }
+function deckCardsFor(ctx: any, sessionId: bigint, username: string) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const out: any[] = [];
+  for (const c of ctx.db.defensiveBattleDeckCard.defensive_battle_deck_card_session.filter(sessionId)) {
+    if (c.username === username) out.push(c);
   }
-  return updatedSession;
+  out.sort((a, b) => a.deckOrder - b.deckOrder);
+  return out;
 }
 
 // ---------- Battle-start helper ----------
@@ -305,19 +385,21 @@ function startBattle(ctx: any, sessionId: bigint): void {
       waveAtDefeat: 0,
       handSize,
     });
-    // Initial hand draws.
-    const { rng, updatedSession: bumpedSession } = rngForSession(ctx, updatedSession, handSize);
-    updatedSession = bumpedSession;
-    for (let i = 0; i < handSize; i++) {
-      const actionId = drawActionForUsername(ctx, rng, p.username);
-      if (actionId === null) continue; // empty loadout — slot intentionally absent
-      ctx.db.defensiveBattleHandSlot.insert({
+    // Snapshot loadout into the deck. Order = loadout slot index ascending
+    // (no shuffle — loadout slot order IS the deck order, per spec Decision 1).
+    // Empty slots are skipped; deck size = number of populated slots.
+    const slots = [...ctx.db.playerActionLoadout.player_action_loadout_username.filter(p.username)];
+    slots.sort((a, b) => a.slotIndex - b.slotIndex);
+    let order = 0;
+    for (const slot of slots) {
+      ctx.db.defensiveBattleDeckCard.insert({
         id: 0n,
         sessionId,
         username: p.username,
-        handIndex: i,
-        actionId,
+        deckOrder: order,
+        actionId: slot.actionId,
       });
+      order += 1;
     }
   }
 
@@ -445,23 +527,24 @@ function markParticipantDefeated(ctx: any, sessionId: bigint, participant: any):
 }
 
 // External entry point: called from clientDisconnected to handle a player
-// disconnecting mid-battle. Marks defeated AND runs game-over check so the
-// session doesn't stall forever (devils-advocate's flagged failure path).
+// disconnecting mid-battle. Voting state still cancels (a non-vote shouldn't
+// hold up the proposal). For inProgress, we used to mark the player defeated
+// so battles couldn't stall — but that fires false-positives any time SpacetimeDB
+// times out a stale identity for a user who has another connection live (Expo
+// restarts produce a new identity per session, leaving stale rows). The user
+// can forfeit explicitly via the existing button if they really want to leave.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function handleDefensiveBattleDisconnect(ctx: any, username: string): void {
   for (const p of ctx.db.defensiveBattleParticipant.defensive_battle_participant_username.filter(username)) {
     const session = ctx.db.defensiveBattleSession.sessionId.find(p.sessionId);
     if (session === null) continue;
     if (session.state.tag === 'voting') {
-      // Treat as nay vote — cancel session.
       cancelSessionAsNay(ctx, p.sessionId);
       return;
     }
-    if (session.state.tag === 'inProgress') {
-      markParticipantDefeated(ctx, p.sessionId, p);
-      runGameOverChecks(ctx, p.sessionId);
-      return;
-    }
+    // inProgress: leave the participant alone. They may still have a live
+    // connection on a different identity; if they truly left, the game is
+    // playable without them and they can rejoin or forfeit.
   }
 }
 
@@ -696,14 +779,13 @@ export const performAction = spacetimedb.reducer(
     if (me === null) throw new SenderError('You are not a participant');
     if (me.isDefeated) throw new SenderError('You are defeated');
 
-    let mySlot = null;
-    for (const slot of ctx.db.defensiveBattleHandSlot.defensive_battle_hand_slot_session.filter(sessionId)) {
-      if (slot.username === s.username && slot.handIndex === handIndex) {
-        mySlot = slot;
-        break;
-      }
-    }
-    if (mySlot === null) throw new SenderError('Hand slot not found');
+    // Cycling Deck: handIndex is the position in the visible hand (top of
+    // deck, sorted by deckOrder). Resolve to the actual deck card row.
+    const myDeck = deckCardsFor(ctx, sessionId, s.username);
+    if (myDeck.length === 0) throw new SenderError('Empty deck');
+    const visibleHandSize = Math.min(me.handSize, myDeck.length);
+    if (handIndex >= visibleHandSize) throw new SenderError('Hand slot not found');
+    const mySlot = myDeck[handIndex];
 
     const actionDef = ctx.db.actionDefinition.actionId.find(mySlot.actionId);
     if (actionDef === null) throw new SenderError('Unknown action');
@@ -734,6 +816,16 @@ export const performAction = spacetimedb.reducer(
       if (target === null || target.sessionId !== sessionId) {
         throw new SenderError('Invalid participant target');
       }
+      // Reject obvious zero-effect casts so the card isn't consumed and the
+      // player isn't punished for a teammate's race-window heal/revive landing
+      // first. Cycling Deck makes "I picked Revive but it's no longer needed"
+      // a real frequency, and this turns a wasted play into a free retarget.
+      if (resolved.kind === 'healFull' && !target.isDefeated) {
+        throw new SenderError('Target is not defeated');
+      }
+      if (resolved.kind === 'healAmount' && !target.isDefeated && target.currentHp >= target.maxHp) {
+        throw new SenderError('Target is already at full HP');
+      }
       participantTargets.push({ id: targetId, row: target });
     } else if (targetingTag === 'allAllies' || targetingTag === 'partyIncludingSelf') {
       for (const p of participantsOf(ctx, sessionId)) {
@@ -744,13 +836,37 @@ export const performAction = spacetimedb.reducer(
     }
 
     // Apply effect.
+    // Accumulators for the actionResolved payload — let the client render
+    // "Volley — 28 dmg ×4 targets" without re-deriving from per-target logs.
+    let totalAmount = 0;
+    let targetCount = 0;
     let updatedSession = session;
     if (resolved.kind === 'damage') {
+      // Pierce ignores armor entirely — its mechanical identity.
+      const piercesArmor = mySlot.actionId === 'pierce';
       // Roll once per zombie.
       const { rng, updatedSession: bumped } = rngForSession(ctx, updatedSession, zombieTargets.length);
       updatedSession = bumped;
       for (const tgt of zombieTargets) {
         const rolled = rngIntInRange(rng, resolved.resolvedMin, resolved.resolvedMax);
+        targetCount += 1;
+        // Armor blocks one full instance per stack — even a 100-damage roll
+        // is consumed by 1 armor. Pierce skips this check.
+        if (!piercesArmor && tgt.row.armor > 0) {
+          ctx.db.defensiveBattleZombie.id.update({
+            ...tgt.row,
+            armor: tgt.row.armor - 1,
+          });
+          logEvent(ctx, sessionId, s.username, 'damageDealt', {
+            source: 'action',
+            actionId: mySlot.actionId,
+            targetKind: 'zombie',
+            targetId: tgt.id.toString(),
+            amount: 0,
+            blockedBy: 'armor',
+          });
+          continue;
+        }
         const newHp = tgt.row.currentHp - rolled;
         const isDead = newHp <= 0;
         ctx.db.defensiveBattleZombie.id.update({
@@ -758,12 +874,14 @@ export const performAction = spacetimedb.reducer(
           currentHp: isDead ? 0 : newHp,
           isDead,
         });
+        totalAmount += rolled;
         logEvent(ctx, sessionId, s.username, 'damageDealt', {
           source: 'action',
           actionId: mySlot.actionId,
           targetKind: 'zombie',
           targetId: tgt.id.toString(),
           amount: rolled,
+          ...(piercesArmor && tgt.row.armor > 0 ? { piercedArmor: tgt.row.armor } : {}),
         });
       }
     } else if (resolved.kind === 'healAmount') {
@@ -780,6 +898,10 @@ export const performAction = spacetimedb.reducer(
           isDefeated: reviving ? false : tgt.row.isDefeated,
           waveAtDefeat: reviving ? 0 : tgt.row.waveAtDefeat,
         });
+        // Count the heal amount actually applied (HP delta), not the raw roll —
+        // popout reads "+12 HP" from real recovery, not theoretical roll.
+        totalAmount += newHp - tgt.row.currentHp;
+        targetCount += 1;
         if (reviving) {
           updatedSession = {
             ...updatedSession,
@@ -797,6 +919,7 @@ export const performAction = spacetimedb.reducer(
           isDefeated: false,
           waveAtDefeat: 0,
         });
+        targetCount += 1;
         if (wasDefeated) {
           updatedSession = {
             ...updatedSession,
@@ -805,25 +928,34 @@ export const performAction = spacetimedb.reducer(
           ctx.db.defensiveBattleSession.sessionId.update(updatedSession);
         }
       }
+      // healFull: popout renders "Full HP" from kind alone; totalAmount stays 0.
     } else if (resolved.kind === 'ward') {
       for (const tgt of participantTargets) {
         ctx.db.defensiveBattleParticipant.id.update({
           ...tgt.row,
           wardCount: tgt.row.wardCount + resolved.resolvedCount,
         });
+        targetCount += 1;
       }
+      // Per-target ward count is uniform — the popout reads "+N ward ×K party".
+      totalAmount = resolved.resolvedCount;
     }
 
     logEvent(ctx, sessionId, s.username, 'actionResolved', {
       actionId: mySlot.actionId,
       kind: resolved.kind,
+      totalAmount,
+      targetCount,
     });
 
-    // Self-damage = current live zombie count.
-    const liveCount = liveZombiesOf(ctx, sessionId, updatedSession.currentWave).length;
+    // Self-damage = sum of live zombie attack values. Juggernaut(⚔3) hurts
+    // visibly more than basic(⚔1); kill priority becomes a number the player
+    // can read off the screen.
+    const liveZombiesNow = liveZombiesOf(ctx, sessionId, updatedSession.currentWave);
+    const tickAmount = liveZombiesNow.reduce((sum, z) => sum + z.attack, 0);
     let me2 = ctx.db.defensiveBattleParticipant.id.find(me.id);
     if (me2 !== null) {
-      let damage = liveCount;
+      let damage = tickAmount;
       if (me2.wardCount > 0) {
         ctx.db.defensiveBattleParticipant.id.update({ ...me2, wardCount: me2.wardCount - 1 });
         damage = 0;
@@ -850,8 +982,21 @@ export const performAction = spacetimedb.reducer(
       });
     }
 
-    // Refill the hand slot.
-    updatedSession = refillHand(ctx, updatedSession ?? session, s.username, handIndex);
+    // Cycle the played card to the back of the deck. New deckOrder = max+1
+    // among the player's deck rows. No random refill — deck composition is
+    // immutable for the battle.
+    {
+      let maxOrder = 0;
+      for (const c of ctx.db.defensiveBattleDeckCard.defensive_battle_deck_card_session.filter(sessionId)) {
+        if (c.username === s.username && c.deckOrder > maxOrder) {
+          maxOrder = c.deckOrder;
+        }
+      }
+      ctx.db.defensiveBattleDeckCard.id.update({
+        ...mySlot,
+        deckOrder: maxOrder + 1,
+      });
+    }
 
     // Wave-completion check.
     const liveAfter = liveZombiesOf(ctx, sessionId, updatedSession.currentWave).length;
@@ -922,18 +1067,42 @@ export const myDefensiveBattleParticipants = spacetimedb.view(
   }
 );
 
+// The caller's own deck, ordered by deckOrder ascending (top of deck first).
+// Client splits into hand (first handSize) vs queue (the rest).
 export const myDefensiveBattleHand = spacetimedb.view(
   { name: 'my_defensive_battle_hand', public: true },
-  t.array(defensiveBattleHandSlot.rowType),
+  t.array(defensiveBattleDeckCard.rowType),
   ctx => {
     const s = ctx.db.session.identity.find(ctx.sender);
     if (s === null) return [];
     const found = findActiveSessionForUsername(ctx, s.username);
     if (!found) return [];
     const out = [];
-    for (const slot of ctx.db.defensiveBattleHandSlot.defensive_battle_hand_slot_session.filter(found.session.sessionId)) {
+    for (const slot of ctx.db.defensiveBattleDeckCard.defensive_battle_deck_card_session.filter(found.session.sessionId)) {
       if (slot.username === s.username) out.push(slot);
     }
+    out.sort((a, b) => a.deckOrder - b.deckOrder);
+    return out;
+  }
+);
+
+// Co-op coordination view: every party member's deck for the caller's active
+// session, including the caller. Client filters self out. Surfaces "Sarah has
+// Revive coming up next" so duplicate-cast races become information problems
+// instead of timing problems.
+export const partyDefensiveBattleDecks = spacetimedb.view(
+  { name: 'party_defensive_battle_decks', public: true },
+  t.array(defensiveBattleDeckCard.rowType),
+  ctx => {
+    const s = ctx.db.session.identity.find(ctx.sender);
+    if (s === null) return [];
+    const found = findActiveSessionForUsername(ctx, s.username);
+    if (!found) return [];
+    const out = [];
+    for (const slot of ctx.db.defensiveBattleDeckCard.defensive_battle_deck_card_session.filter(found.session.sessionId)) {
+      out.push(slot);
+    }
+    out.sort((a, b) => a.deckOrder - b.deckOrder);
     return out;
   }
 );

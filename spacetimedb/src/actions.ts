@@ -482,7 +482,7 @@ const ACTION_DEF_SEEDS: ActionDefSeed[] = [
   {
     actionId: 'pierce',
     displayName: 'Pierce',
-    description: 'Deal damage to one enemy. Tight range with a rising floor — never rolls low.',
+    description: 'Deal damage to one enemy. Ignores armor — never blocked. Floor rises with Focus.',
     iconKey: 'action_pierce',
     targeting: { tag: 'singleEnemy' },
     effect: { tag: 'damage', value: { baseMin: 4, baseMax: 6 } },
@@ -528,8 +528,13 @@ const ACTION_SCALING_SEEDS: ActionScalingSeed[] = [
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function seedActions(ctx: any): void {
   for (const def of ACTION_DEF_SEEDS) {
-    if (ctx.db.actionDefinition.actionId.find(def.actionId) === null) {
+    const existing = ctx.db.actionDefinition.actionId.find(def.actionId);
+    if (existing === null) {
       ctx.db.actionDefinition.insert(def);
+    } else {
+      // Keep existing rows in sync with the seed so description / number tweaks
+      // applied via republish reach players without a clear-database wipe.
+      ctx.db.actionDefinition.actionId.update({ ...existing, ...def });
     }
   }
   for (const scaling of ACTION_SCALING_SEEDS) {

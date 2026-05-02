@@ -47,6 +47,7 @@ import {
   defensiveBattleStatSnapshot,
   defensiveBattleZombie,
   defensiveBattleHandSlot,
+  defensiveBattleDeckCard,
   defensiveBattleLog,
   defensiveBattleVoteCancelJob,
 } from './battle_tables';
@@ -124,6 +125,7 @@ const spacetimedb = schema({
   defensiveBattleStatSnapshot,
   defensiveBattleZombie,
   defensiveBattleHandSlot,
+  defensiveBattleDeckCard,
   defensiveBattleLog,
   defensiveBattleVoteCancelJob,
   itemDefinition,
