@@ -416,6 +416,34 @@ export const unequipItem = spacetimedb.reducer(
   }
 );
 
+// Permanently destroys an item the caller owns. Auto-unequips first if the
+// item is currently equipped (clears any stat sources via unequipInternal),
+// then deletes all itemInstanceAffix rows for the instance, then the
+// itemInstance itself. Idempotent on missing-or-not-owned (throws SenderError).
+export const trashItem = spacetimedb.reducer(
+  { itemInstanceId: t.u64() },
+  (ctx, { itemInstanceId }) => {
+    const s = ctx.db.session.identity.find(ctx.sender);
+    if (s === null) throw new SenderError('Not signed in');
+    const inst = ctx.db.itemInstance.instanceId.find(itemInstanceId);
+    if (inst === null) throw new SenderError('Item not found');
+    if (inst.ownerUsername !== s.username) throw new SenderError('Not your item');
+
+    const itemDef = ctx.db.itemDefinition.itemDefId.find(inst.itemDefId);
+    if (itemDef !== null) {
+      const equipped = findEquippedInSlot(ctx, s.username, itemDef.slotId);
+      if (equipped !== null && equipped.itemInstanceId === itemInstanceId) {
+        unequipInternal(ctx, s.username, itemDef.slotId);
+      }
+    }
+
+    for (const aff of ctx.db.itemInstanceAffix.item_instance_affix_instance.filter(itemInstanceId)) {
+      ctx.db.itemInstanceAffix.id.delete(aff.id);
+    }
+    ctx.db.itemInstance.instanceId.delete(itemInstanceId);
+  }
+);
+
 // ---------- Seed ----------
 
 interface SlotSeed {

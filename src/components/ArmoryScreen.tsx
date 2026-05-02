@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { ScrollView, Text, View } from 'react-native';
+import { Modal, ScrollView, Text, View } from 'react-native';
 import { useReducer, useTable } from 'spacetimedb/react';
 import { reducers, tables } from '../module_bindings';
 import SafePressable from './SafePressable';
@@ -31,6 +31,9 @@ export default function ArmoryScreen({ onBack }: ArmoryScreenProps) {
   const craftItem = useReducer(reducers.craftItem);
   const equipItem = useReducer(reducers.equipItem);
   const unequipItem = useReducer(reducers.unequipItem);
+  const trashItem = useReducer(reducers.trashItem);
+
+  const [trashCandidate, setTrashCandidate] = useState<bigint | null>(null);
 
   const armory = armoryStates[0];
   const level = armory?.level ?? 1;
@@ -142,6 +145,12 @@ export default function ArmoryScreen({ onBack }: ArmoryScreenProps) {
   const onUnequip = (slotId: string) =>
     guarded(`unequip:${slotId}`, async () => {
       await unequipItem({ slotId });
+    });
+
+  const onTrash = (instanceId: bigint) =>
+    guarded(`trash:${instanceId.toString()}`, async () => {
+      await trashItem({ itemInstanceId: instanceId });
+      setTrashCandidate(null);
     });
 
   return (
@@ -355,47 +364,104 @@ export default function ArmoryScreen({ onBack }: ArmoryScreenProps) {
                     ))
                   )}
                 </View>
-                <SafePressable
-                  onPress={() =>
-                    isEquipped
-                      ? def
-                        ? onUnequip(def.slotId)
-                        : null
-                      : onEquip(it.instanceId)
-                  }
-                  disabled={busy !== null || (!isEquipped && !slot)}
-                  className={`rounded-lg py-2 items-center ${
-                    busy === null && (isEquipped || slot)
-                      ? isEquipped
-                        ? 'bg-slate-800'
-                        : 'bg-emerald-500'
-                      : 'bg-slate-800'
-                  }`}
-                >
-                  <Text
-                    className={`text-xs font-medium ${
-                      busy === null && !isEquipped && slot
-                        ? 'text-slate-950'
-                        : 'text-slate-200'
+                <View className="flex-row gap-2">
+                  <SafePressable
+                    onPress={() =>
+                      isEquipped
+                        ? def
+                          ? onUnequip(def.slotId)
+                          : null
+                        : onEquip(it.instanceId)
+                    }
+                    disabled={busy !== null || (!isEquipped && !slot)}
+                    className={`flex-1 rounded-lg py-2 items-center ${
+                      busy === null && (isEquipped || slot)
+                        ? isEquipped
+                          ? 'bg-slate-800'
+                          : 'bg-emerald-500'
+                        : 'bg-slate-800'
                     }`}
                   >
-                    {busy === busyKey
-                      ? isEquipped
-                        ? 'Unequipping…'
-                        : 'Equipping…'
-                      : isEquipped
-                        ? 'Unequip'
-                        : !slot
-                          ? 'Slot locked'
-                          : 'Equip'}
-                  </Text>
-                </SafePressable>
+                    <Text
+                      className={`text-xs font-medium ${
+                        busy === null && !isEquipped && slot
+                          ? 'text-slate-950'
+                          : 'text-slate-200'
+                      }`}
+                    >
+                      {busy === busyKey
+                        ? isEquipped
+                          ? 'Unequipping…'
+                          : 'Equipping…'
+                        : isEquipped
+                          ? 'Unequip'
+                          : !slot
+                            ? 'Slot locked'
+                            : 'Equip'}
+                    </Text>
+                  </SafePressable>
+                  <SafePressable
+                    onPress={() => setTrashCandidate(it.instanceId)}
+                    disabled={busy !== null}
+                    accessibilityLabel="Trash this item"
+                    className="rounded-lg py-2 px-3 items-center justify-center bg-slate-900 border border-rose-900"
+                  >
+                    <Text className="text-xs font-medium text-rose-400">
+                      ✕
+                    </Text>
+                  </SafePressable>
+                </View>
               </View>
             );
           })
         )}
       </ScrollView>
       )}
+      <Modal
+        visible={trashCandidate !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setTrashCandidate(null)}
+      >
+        <View className="flex-1 bg-black/70 items-center justify-center px-8">
+          <View className="rounded-2xl bg-slate-900 border border-slate-800 p-5 gap-3 w-full max-w-sm">
+            <Text className="text-base font-semibold text-slate-100">
+              Trash this item?
+            </Text>
+            {(() => {
+              const tc = trashCandidate;
+              if (tc === null) return null;
+              const it = items.find(i => i.instanceId === tc);
+              const def = it ? itemDefById.get(it.itemDefId) : undefined;
+              return (
+                <Text className="text-xs text-slate-400">
+                  {def?.displayName ?? 'This item'} will be permanently destroyed. This cannot be undone.
+                </Text>
+              );
+            })()}
+            <View className="flex-row gap-2 mt-1">
+              <SafePressable
+                onPress={() => setTrashCandidate(null)}
+                disabled={busy !== null}
+                className="flex-1 rounded-lg py-2 items-center bg-slate-800"
+              >
+                <Text className="text-xs font-medium text-slate-200">Cancel</Text>
+              </SafePressable>
+              <SafePressable
+                onPress={() => {
+                  if (trashCandidate !== null) onTrash(trashCandidate);
+                }}
+                disabled={busy !== null}
+                className="flex-1 rounded-lg py-2 items-center bg-rose-600"
+              >
+                <Text className="text-xs font-semibold text-white">
+                  {busy?.startsWith('trash:') ? 'Trashing…' : 'Trash'}
+                </Text>
+              </SafePressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
