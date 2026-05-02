@@ -858,6 +858,15 @@ export const init = spacetimedb.init(ctx => {
 
 export const onConnect = spacetimedb.clientConnected(_ctx => {});
 
+// One-shot migration reducer — re-runs the idempotent seeders so additions to
+// SKILL_SEEDS / STAT_GRANT_SEEDS / class node seeds land on an already-
+// initialized DB without --clear-database. Safe to call repeatedly. Anyone
+// can call; the seed functions themselves only insert missing rows.
+export const runSeedMigration = spacetimedb.reducer(ctx => {
+  seedSkillTrees(ctx);
+  seedClassSystem(ctx);
+});
+
 export const onDisconnect = spacetimedb.clientDisconnected(ctx => {
   handleMinigameDisconnect(ctx);
   const s = ctx.db.session.identity.find(ctx.sender);

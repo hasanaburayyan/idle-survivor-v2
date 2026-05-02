@@ -441,6 +441,14 @@ const STAT_GRANT_SEEDS: StatGrantSeed[] = [
   { skillId: 'focus_major', statId: 'focus', amountPerLevel: 3 },
   { skillId: 'fortune_minor', statId: 'fortune', amountPerLevel: 1 },
   { skillId: 'fortune_major', statId: 'fortune', amountPerLevel: 3 },
+  // Class-tree infinite-scaling stat nodes — each grants +1 of the class's
+  // governing stat per level. No cap; cost-curve on class point crafting is
+  // the natural soft cap. Always-on (`:skill:` source), so investment persists
+  // across class swaps.
+  { skillId: 'vigor_growth', statId: 'vigor', amountPerLevel: 1 },
+  { skillId: 'focus_growth', statId: 'focus', amountPerLevel: 1 },
+  { skillId: 'power_growth', statId: 'power', amountPerLevel: 1 },
+  { skillId: 'fortune_growth', statId: 'fortune', amountPerLevel: 1 },
 ];
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
