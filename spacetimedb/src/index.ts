@@ -117,6 +117,7 @@ export {
   craftItem,
   equipItem,
   unequipItem,
+  trashItem,
 } from './armory';
 export {
   equipClass,
