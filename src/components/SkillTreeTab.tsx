@@ -545,7 +545,8 @@ export default function SkillTreeTab() {
     ? levelBySkill.get(effectiveSelectedDef.skillId) ?? 0
     : 0;
   const selectedAtMax = effectiveSelectedDef
-    ? selectedLevel >= effectiveSelectedDef.maxLevel
+    ? !effectiveSelectedDef.infiniteScaling &&
+      selectedLevel >= effectiveSelectedDef.maxLevel
     : false;
   const selectedPrereqMet = effectiveSelectedDef
     ? allPrereqsMet(effectiveSelectedDef)
@@ -814,7 +815,10 @@ export default function SkillTreeTab() {
           <Text className="text-sm font-semibold text-slate-100">
             {effectiveSelectedDef.name}{' '}
             <Text className="text-xs text-slate-400">
-              Lv {selectedLevel} / {effectiveSelectedDef.maxLevel}
+              Lv {selectedLevel}
+              {effectiveSelectedDef.infiniteScaling
+                ? ' · ∞'
+                : ` / ${effectiveSelectedDef.maxLevel}`}
             </Text>
           </Text>
           <Text className="text-xs text-slate-400">
@@ -827,7 +831,8 @@ export default function SkillTreeTab() {
                 const totalColor =
                   selectedLevel === 0
                     ? 'text-slate-500'
-                    : selectedLevel >= effectiveSelectedDef.maxLevel
+                    : !effectiveSelectedDef.infiniteScaling &&
+                        selectedLevel >= effectiveSelectedDef.maxLevel
                       ? 'text-emerald-300 font-semibold'
                       : 'text-emerald-400';
                 return (
