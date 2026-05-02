@@ -1,8 +1,14 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, Easing, ScrollView, Text, View } from 'react-native';
-import { useTable } from 'spacetimedb/react';
-import { tables } from '../module_bindings';
+import { useReducer, useTable } from 'spacetimedb/react';
+import { reducers, tables } from '../module_bindings';
 import SafePressable from './SafePressable';
+import ClassEquipModal, {
+  CLASS_GLYPH,
+  CLASS_ACCENT_TEXT,
+  CLASS_TREE_IDS,
+  type ClassTreeRef,
+} from './ClassEquipModal';
 
 interface StatDefRow {
   statId: string;
@@ -39,14 +45,51 @@ export default function CharacterTab() {
   const [skillDefs] = useTable(tables.skillDefinition);
   const [itemInstances] = useTable(tables.myItemInstances);
   const [itemDefs] = useTable(tables.itemDefinition);
+  const [playerStates] = useTable(tables.myPlayerState);
+  const [visibleTrees] = useTable(tables.myVisibleSkillTrees);
+
+  const [equippedClassRows] = useTable(tables.myEquippedClass);
+  const equipClassReducer = useReducer(reducers.equipClass);
+  const unequipClassReducer = useReducer(reducers.unequipClass);
+  const doEquipClass = useCallback(async (classId: string): Promise<void> => {
+    equipClassReducer({ classId });
+  }, [equipClassReducer]);
+  const doUnequipClass = useCallback(async (): Promise<void> => {
+    unequipClassReducer();
+  }, [unequipClassReducer]);
 
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [equipModalOpen, setEquipModalOpen] = useState(false);
 
   const sortedDefs = useMemo(() => {
     return [...(statDefs as StatDefRow[])].sort(
       (a, b) => a.sortOrder - b.sortOrder
     );
   }, [statDefs]);
+
+  const playerLocation = playerStates[0]?.location ?? '';
+  const inMinigame =
+    playerLocation.startsWith('defensive_battle:') ||
+    playerLocation.startsWith('minigame:');
+
+  const equippedClassId = equippedClassRows[0]?.classId ?? '';
+
+  const unlockedClassTrees = useMemo<ClassTreeRef[]>(
+    () =>
+      [...visibleTrees]
+        .filter(t => CLASS_TREE_IDS.has(t.treeId))
+        .sort((a, b) => a.sortOrder - b.sortOrder)
+        .map(t => ({ treeId: t.treeId, displayName: t.displayName })),
+    [visibleTrees]
+  );
+
+  const equippedDisplayName = useMemo(() => {
+    if (equippedClassId === '') return '';
+    return (
+      unlockedClassTrees.find(c => c.treeId === equippedClassId)?.displayName ??
+      equippedClassId
+    );
+  }, [equippedClassId, unlockedClassTrees]);
 
   const totalByStat = useMemo(() => {
     const m = new Map<string, number>();
@@ -92,10 +135,19 @@ export default function CharacterTab() {
   }
 
   return (
+    <>
     <ScrollView
       className="flex-1 bg-slate-950"
       contentContainerStyle={{ padding: 16, gap: 8 }}
     >
+      <ClassEquipSection
+        equippedClassId={equippedClassId}
+        equippedDisplayName={equippedDisplayName}
+        unlockedClasses={unlockedClassTrees}
+        inMinigame={inMinigame}
+        onChangePress={() => setEquipModalOpen(true)}
+      />
+
       <View className="mb-1">
         <Text className="text-xs uppercase tracking-widest text-slate-500">
           Character
@@ -127,6 +179,94 @@ export default function CharacterTab() {
         );
       })}
     </ScrollView>
+
+    <ClassEquipModal
+      visible={equipModalOpen}
+      onClose={() => setEquipModalOpen(false)}
+      equippedClassId={equippedClassId}
+      unlockedClasses={unlockedClassTrees}
+      inMinigame={inMinigame}
+      onEquip={doEquipClass}
+      onUnequip={doUnequipClass}
+    />
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// ClassEquipSection — top-of-CharacterTab class badge + change button
+// ---------------------------------------------------------------------------
+
+function ClassEquipSection({
+  equippedClassId,
+  equippedDisplayName,
+  unlockedClasses,
+  inMinigame,
+  onChangePress,
+}: {
+  equippedClassId: string;
+  equippedDisplayName: string;
+  unlockedClasses: ClassTreeRef[];
+  inMinigame: boolean;
+  onChangePress: () => void;
+}) {
+  return (
+    <View className="rounded-xl border border-slate-800 bg-slate-900/70 overflow-hidden">
+      <View className="flex-row items-center justify-between px-4 py-3">
+        <View className="flex-1">
+          <Text className="text-xs uppercase tracking-widest text-slate-500">Class</Text>
+          <View className="flex-row items-center gap-2 mt-1 flex-wrap">
+            {equippedClassId !== '' ? (
+              <>
+                <Text
+                  className={`text-base ${CLASS_ACCENT_TEXT[equippedClassId] ?? 'text-amber-300'}`}
+                >
+                  {CLASS_GLYPH[equippedClassId] ?? '?'}
+                </Text>
+                <Text className="text-base font-semibold text-slate-100">
+                  {equippedDisplayName}
+                </Text>
+                <View className="rounded-full bg-amber-500/15 px-2 py-0.5">
+                  <Text className="text-[10px] text-amber-300">◉ Active</Text>
+                </View>
+              </>
+            ) : unlockedClasses.length > 0 ? (
+              <Text className="text-sm text-slate-500 mt-0.5">
+                None equipped — {unlockedClasses.length} available
+              </Text>
+            ) : (
+              <Text className="text-sm text-slate-500 mt-0.5">
+                Locked — master a stat to unlock a class
+              </Text>
+            )}
+          </View>
+        </View>
+        <SafePressable
+          onPress={onChangePress}
+          disabled={inMinigame || unlockedClasses.length === 0}
+          accessibilityLabel={
+            inMinigame
+              ? 'Cannot change class during minigame'
+              : unlockedClasses.length === 0
+                ? 'No classes unlocked yet'
+                : 'Change equipped class'
+          }
+          className={`rounded-lg px-3 py-2 border ml-3 ${
+            inMinigame || unlockedClasses.length === 0
+              ? 'border-slate-800 bg-slate-800'
+              : 'border-amber-500/30 bg-amber-500/10'
+          }`}
+        >
+          <Text
+            className={`text-xs font-medium ${
+              inMinigame || unlockedClasses.length === 0 ? 'text-slate-600' : 'text-amber-300'
+            }`}
+          >
+            {inMinigame ? 'Locked' : unlockedClasses.length === 0 ? '—' : 'Change'}
+          </Text>
+        </SafePressable>
+      </View>
+    </View>
   );
 }
 
@@ -351,6 +491,15 @@ function resolveSourceLabel(
     const name = itemNameByInstanceId.get(refId);
     if (name) return { label: name, resolved: true };
     return { label: sourceKey, resolved: false };
+  }
+  // Class source keys: {username}:class:{classId}:{skillId}:{...}
+  if (kind === 'class') {
+    const classId = refId; // parts[2]
+    const skillId = parts[3]; // may be undefined for coarser source keys
+    const skillName = skillId ? skillNameById.get(skillId) : undefined;
+    const classLabel = classId.charAt(0).toUpperCase() + classId.slice(1);
+    if (skillName) return { label: `${classLabel}: ${skillName}`, resolved: true };
+    return { label: `Class (${classLabel})`, resolved: true };
   }
   return { label: sourceKey, resolved: false };
 }

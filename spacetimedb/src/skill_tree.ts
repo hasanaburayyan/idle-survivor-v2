@@ -14,6 +14,8 @@ export function isTreeCompleted(ctx: any, username: string, treeId: string): boo
   let total = 0;
   let maxedCount = 0;
   for (const def of ctx.db.skillDefinition.skill_definition_tree.filter(treeId)) {
+    // infiniteScaling nodes have no level cap and are excluded from completion checks.
+    if (def.infiniteScaling === true) continue;
     total += 1;
     let level = 0;
     for (const ps of ctx.db.playerSkill.player_skill_username.filter(username)) {
@@ -83,24 +85,73 @@ export function addPoolBalance(ctx: any, username: string, poolId: string, delta
 
 // ---------- Views ----------
 
+// Exhaustive list of all seeded tree IDs in display order.
+// MUST be updated when new trees are seeded via init.
+// Using .find() per ID avoids .iter() so view invalidation is targeted to
+// specific tree rows rather than firing on any skillTreeDefinition change.
+const ORDERED_TREE_IDS = [
+  'beginner',
+  'intermediate',
+  'brute',
+  'generalist',
+  'striker',
+  'wanderer',
+];
+
+/**
+ * isTreeCompleted variant that accepts a pre-built skill Map — avoids the
+ * O(n*m) repeated filter() calls when called from inside a per-tree loop.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function isTreeCompletedFromMap(ctx: any, treeId: string, skillLevels: Map<string, number>): boolean {
+  let total = 0;
+  let maxedCount = 0;
+  for (const def of ctx.db.skillDefinition.skill_definition_tree.filter(treeId)) {
+    if (def.infiniteScaling === true) continue;
+    total += 1;
+    const level = skillLevels.get(def.skillId) ?? 0;
+    if (level >= def.maxLevel) maxedCount += 1;
+  }
+  return total > 0 && maxedCount === total;
+}
+
 export const myVisibleSkillTrees = spacetimedb.view(
   { name: 'my_visible_skill_trees', public: true },
   t.array(skillTreeDefinition.rowType),
   ctx => {
     const s = ctx.db.session.identity.find(ctx.sender);
     if (s === null) return [];
-    const result = [];
-    for (const tree of ctx.db.skillTreeDefinition.iter()) {
+
+    // Build skill Map once — single indexed scan, O(1) lookups per tree/requirement.
+    const skillLevels = new Map<string, number>();
+    for (const ps of ctx.db.playerSkill.player_skill_username.filter(s.username)) {
+      skillLevels.set(ps.skillId, ps.level);
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result: any[] = [];
+    for (const treeId of ORDERED_TREE_IDS) {
+      const tree = ctx.db.skillTreeDefinition.treeId.find(treeId);
+      if (tree === null) continue; // not yet seeded
       const cond = tree.unlockCondition;
       if (cond.tag === 'always') {
         result.push(tree);
       } else if (cond.tag === 'treeCompleted') {
-        if (isTreeCompleted(ctx, s.username, cond.value.treeId)) {
+        if (isTreeCompletedFromMap(ctx, cond.value.treeId, skillLevels)) {
+          result.push(tree);
+        }
+      } else if (cond.tag === 'skillsAtLevel') {
+        // Class trees: all stat requirements met AND unlock_<treeId> purchased.
+        const reqs: { skillId: string; level: number }[] = cond.value.requirements;
+        const allStatsMet = reqs.every(req => (skillLevels.get(req.skillId) ?? 0) >= req.level);
+        if (allStatsMet && (skillLevels.get(`unlock_${tree.treeId}`) ?? 0) >= 1) {
           result.push(tree);
         }
       }
-      // 'manual' variants are not yet granted by any system; skip.
+      // 'manual': not yet granted by any system — skip.
     }
+    // ORDERED_TREE_IDS already reflects display order; sort defensively in case
+    // seed sortOrder values diverge from the constant.
     result.sort((a, b) => a.sortOrder - b.sortOrder);
     return result;
   }

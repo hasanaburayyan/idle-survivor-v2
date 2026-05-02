@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
   Easing,
@@ -14,6 +14,12 @@ import { useSpotlightTarget } from './SpotlightTargetRegistry';
 import Svg, { Line } from 'react-native-svg';
 import { useReducer, useTable } from 'spacetimedb/react';
 import { reducers, tables } from '../module_bindings';
+import ClassEquipModal, {
+  CLASS_GLYPH,
+  CLASS_ACCENT_TEXT,
+  CLASS_TREE_IDS,
+  type ClassTreeRef,
+} from './ClassEquipModal';
 
 const NODE_DIAMETER = 96;
 const CANVAS_PADDING = 220;
@@ -39,7 +45,17 @@ interface SkillDef {
   positionY: number;
   sortOrder: number;
   treeId: string;
+  // Phase 1 additions — new columns from the class-trees schema migration.
+  /** Non-empty only for capstone branch nodes; groups mutually-exclusive choices. */
+  capstoneBranchId: string;
+  /** When true, node has no hard max level — progressByTree skips it for completion. */
+  infiniteScaling: boolean;
+  /** When non-empty, prerequisiteStatValue is compared to this stat total instead of player level. */
+  prerequisiteStatId: string;
+  /** Minimum value of prerequisiteStatId required (0 = unused). */
+  prerequisiteStatValue: number;
 }
+
 
 // Distinct unicode glyphs per stat — mirrors CharacterTab.STAT_GLYPH so the
 // same visual shorthand reads consistently across screens.
@@ -70,12 +86,28 @@ export default function SkillTreeTab() {
   const [pointBalances] = useTable(tables.myPointBalances);
   const [statGrants] = useTable(tables.skillStatGrant);
   const [statDefs] = useTable(tables.statDefinition);
+  const [statTotals] = useTable(tables.myStatTotals);
   const upgrade = useReducer(reducers.upgradeSkill);
+
+  const [equippedClassRows] = useTable(tables.myEquippedClass);
+  const equipClassReducer = useReducer(reducers.equipClass);
+  const unequipClassReducer = useReducer(reducers.unequipClass);
+  const doEquipClass = useCallback(async (classId: string): Promise<void> => {
+    equipClassReducer({ classId });
+  }, [equipClassReducer]);
+  const doUnequipClass = useCallback(async (): Promise<void> => {
+    unequipClassReducer();
+  }, [unequipClassReducer]);
 
   const [selected, setSelected] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [activeTreeId, setActiveTreeId] = useState<string | null>(null);
+  const [equipModalOpen, setEquipModalOpen] = useState(false);
   const playerLevel = playerStates[0]?.playerLevel ?? 0;
+  const playerLocation = playerStates[0]?.location ?? '';
+  const inMinigame =
+    playerLocation.startsWith('defensive_battle:') ||
+    playerLocation.startsWith('minigame:');
 
   const levelBySkill = useMemo(() => {
     const map = new Map<string, number>();
@@ -110,6 +142,32 @@ export default function SkillTreeTab() {
     return m;
   }, [pointBalances]);
 
+  const statTotalById = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const s of statTotals) m.set(s.statId, s.total);
+    return m;
+  }, [statTotals]);
+
+  /** treeId of the currently equipped class, or empty string for none. */
+  const equippedClassId = equippedClassRows[0]?.classId ?? '';
+
+  /** Class trees the player has unlocked (visible in myVisibleSkillTrees). */
+  const unlockedClassTrees = useMemo<ClassTreeRef[]>(
+    () =>
+      sortedTrees
+        .filter(t => CLASS_TREE_IDS.has(t.treeId))
+        .map(t => ({ treeId: t.treeId, displayName: t.displayName })),
+    [sortedTrees]
+  );
+
+  const equippedDisplayName = useMemo(() => {
+    if (equippedClassId === '') return '';
+    return (
+      unlockedClassTrees.find(c => c.treeId === equippedClassId)?.displayName ??
+      equippedClassId
+    );
+  }, [equippedClassId, unlockedClassTrees]);
+
   const skillsByTree = useMemo(() => {
     const m = new Map<string, SkillDef[]>();
     for (const def of sorted) {
@@ -121,16 +179,22 @@ export default function SkillTreeTab() {
   }, [sorted]);
 
   // Per-tree progress: { maxed, total } counts. Used by the tab strip.
+  // Infinite-scaling nodes are excluded from total: they have no hard max,
+  // so including them would make the "done" badge never light for class trees.
+  // This mirrors the server's allNodesMaxed completion rule.
   const progressByTree = useMemo(() => {
     const m = new Map<string, { maxed: number; total: number }>();
     for (const tree of sortedTrees) {
       const skills = skillsByTree.get(tree.treeId) ?? [];
       let maxed = 0;
-      for (const def of skills) {
+      let total = 0;
+      for (const def of skills as SkillDef[]) {
+        if (def.infiniteScaling) continue; // no cap — never counts toward completion
+        total += 1;
         const lvl = levelBySkill.get(def.skillId) ?? 0;
         if (lvl >= def.maxLevel) maxed += 1;
       }
-      m.set(tree.treeId, { maxed, total: skills.length });
+      m.set(tree.treeId, { maxed, total });
     }
     return m;
   }, [sortedTrees, skillsByTree, levelBySkill]);
@@ -156,7 +220,12 @@ export default function SkillTreeTab() {
       const lvl = levelBySkill.get(def.prerequisiteSkillId) ?? 0;
       if (lvl < def.prerequisiteLevel) return false;
     }
-    if (def.prerequisitePlayerLevel > 0 && playerLevel < def.prerequisitePlayerLevel) {
+    // Stat-gated prereq (class tree deep nodes, e.g. capstone gates on Vigor 30).
+    // When prerequisiteStatId is set, compare stat total instead of player level.
+    if (def.prerequisiteStatId !== '') {
+      const statTotal = statTotalById.get(def.prerequisiteStatId) ?? 0;
+      if (statTotal < def.prerequisiteStatValue) return false;
+    } else if (def.prerequisitePlayerLevel > 0 && playerLevel < def.prerequisitePlayerLevel) {
       return false;
     }
     const extras = extraPrereqsBySkill.get(def.skillId);
@@ -186,6 +255,8 @@ export default function SkillTreeTab() {
     for (const tree of sortedTrees) {
       const skills = skillsByTree.get(tree.treeId) ?? [];
       const hasSpendable = skills.some(d => {
+        // Infinite-scaling nodes are always spendable (no upper bound)
+        if ((d as SkillDef).infiniteScaling) return true;
         const lvl = levelBySkill.get(d.skillId) ?? 0;
         return lvl < d.maxLevel;
       });
@@ -428,6 +499,16 @@ export default function SkillTreeTab() {
         </View>
       ) : null}
 
+      {/* Class equip banner — visible once at least one class tree is unlocked */}
+      {unlockedClassTrees.length > 0 ? (
+        <ClassEquipBanner
+          equippedClassId={equippedClassId}
+          equippedDisplayName={equippedDisplayName}
+          inMinigame={inMinigame}
+          onChangePress={() => setEquipModalOpen(true)}
+        />
+      ) : null}
+
       <View
         className="flex-1 bg-slate-950"
         style={
@@ -608,6 +689,67 @@ export default function SkillTreeTab() {
           </SafePressable>
         </View>
       ) : null}
+
+      {/* Class equip modal — rendered at root so it overlays the full screen */}
+      <ClassEquipModal
+        visible={equipModalOpen}
+        onClose={() => setEquipModalOpen(false)}
+        equippedClassId={equippedClassId}
+        unlockedClasses={unlockedClassTrees}
+        inMinigame={inMinigame}
+        onEquip={doEquipClass}
+        onUnequip={doUnequipClass}
+      />
+    </View>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// ClassEquipBanner — shown above the canvas when any class tree is unlocked
+// ---------------------------------------------------------------------------
+
+function ClassEquipBanner({
+  equippedClassId,
+  equippedDisplayName,
+  inMinigame,
+  onChangePress,
+}: {
+  equippedClassId: string;
+  equippedDisplayName: string;
+  inMinigame: boolean;
+  onChangePress: () => void;
+}) {
+  return (
+    <View className="flex-row items-center justify-between px-4 py-2 bg-slate-900/80 border-b border-slate-800">
+      <View className="flex-row items-center gap-2">
+        {equippedClassId !== '' ? (
+          <>
+            <Text className={`text-sm ${CLASS_ACCENT_TEXT[equippedClassId] ?? 'text-amber-300'}`}>
+              {CLASS_GLYPH[equippedClassId] ?? '?'}
+            </Text>
+            <Text className="text-xs text-slate-300">
+              <Text className="text-slate-500">Active: </Text>
+              {equippedDisplayName}
+            </Text>
+          </>
+        ) : (
+          <Text className="text-xs text-slate-500">No class equipped</Text>
+        )}
+      </View>
+      <SafePressable
+        onPress={onChangePress}
+        disabled={inMinigame}
+        accessibilityLabel="Change equipped class"
+        className={`rounded-md px-3 py-1 border ${
+          inMinigame ? 'border-slate-800 bg-slate-800' : 'border-slate-700 bg-slate-800'
+        }`}
+      >
+        <Text
+          className={`text-[11px] ${inMinigame ? 'text-slate-600' : 'text-slate-300'}`}
+        >
+          {inMinigame ? 'Locked' : 'Change'}
+        </Text>
+      </SafePressable>
     </View>
   );
 }

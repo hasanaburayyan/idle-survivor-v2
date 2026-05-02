@@ -81,6 +81,14 @@ import {
   cardDuelPlayer,
   cardDuelCardOnBoard,
 } from './minigames/tables';
+import {
+  playerEquippedClass,
+  classNodeEffect,
+  classCraftCost,
+  playerClassCraftProgress,
+  playerCapstoneChoice,
+  playerCapability,
+} from './class_tables';
 
 const spacetimedb = schema({
   account,
@@ -154,6 +162,12 @@ const spacetimedb = schema({
   cardDuelBoard,
   cardDuelPlayer,
   cardDuelCardOnBoard,
+  playerEquippedClass,
+  classNodeEffect,
+  classCraftCost,
+  playerClassCraftProgress,
+  playerCapstoneChoice,
+  playerCapability,
 });
 
 export default spacetimedb;

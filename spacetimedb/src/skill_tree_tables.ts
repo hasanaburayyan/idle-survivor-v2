@@ -8,6 +8,13 @@ export const UnlockCondition = t.enum('UnlockCondition', {
     treeId: t.string(),
   }),
   manual: t.unit(),
+  // APPENDED LAST — BSATN ordinals are positional (always=0, treeCompleted=1,
+  // manual=2, skillsAtLevel=3). Never insert before existing variants.
+  skillsAtLevel: t.object('SkillsAtLevelPayload', {
+    requirements: t.array(
+      t.object('SkillAtLevelReq', { skillId: t.string(), level: t.u32() })
+    ),
+  }),
 });
 
 export const CompletionRule = t.enum('CompletionRule', {

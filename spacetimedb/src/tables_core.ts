@@ -51,6 +51,13 @@ export const playerState = table(
     skillPoints: t.u32(),
     location: t.string(),
     updatedAt: t.timestamp(),
+    // Combo state for Striker class (Phase 2 consumption; schema ships now).
+    // lastClickAt as u64 micros-since-epoch (0 = never clicked) so the column
+    // has a wire-level default for migration. comboBp accumulates basis points.
+    comboLastClickAtMicros: t.u64().default(0n),
+    comboBp: t.u32().default(0),
+    // Monotonic action counter for fortune proc PRNG seeding.
+    actionCount: t.u64().default(0n),
   }
 );
 
@@ -194,6 +201,16 @@ export const skillDefinition = table(
     positionY: t.i32(),
     sortOrder: t.u32(),
     treeId: t.string(),
+    // Class Skill Trees additions (all with wire-level defaults so old rows migrate cleanly):
+    // Groups mutually-exclusive capstone choices. '' = not a capstone node.
+    capstoneBranchId: t.string().default(''),
+    // When true, the node has no level cap (upgradeSkill skips the maxLevel check).
+    // Class tree completion ignores these nodes.
+    infiniteScaling: t.bool().default(false),
+    // When non-empty, the stat gate replaces the prerequisitePlayerLevel check.
+    // upgradeSkill compares getStatTotals(username)[prerequisiteStatId] >= prerequisiteStatValue.
+    prerequisiteStatId: t.string().default(''),
+    prerequisiteStatValue: t.u32().default(0),
   }
 );
 

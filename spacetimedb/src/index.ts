@@ -41,7 +41,8 @@ import './minigames/coinFlip';
 import './minigames/rhythmTap';
 import { seedCardDefinitions } from './minigames/cardDuel';
 import './minigames/cardDuel';
-import { seedStatDefinitions, setStatSource } from './stats';
+import { seedStatDefinitions, setStatSource, getStatTotals } from './stats';
+import { seedClassSystem, CLASS_TREE_IDS, setCapability } from './class';
 import { seedArmory } from './armory';
 import {
   seedActions,
@@ -115,6 +116,13 @@ export {
   equipItem,
   unequipItem,
 } from './armory';
+export {
+  equipClass,
+  unequipClass,
+  myEquippedClass,
+  myClassCraftProgress,
+  myCapstoneChoices,
+} from './class';
 
 export default spacetimedb;
 
@@ -250,6 +258,16 @@ const LOCATION_SEEDS: LocationSeed[] = [
     sortOrder: 0,
     prerequisiteActivityId: '',
     prerequisiteActivityUses: 0,
+  },
+  {
+    locationKey: 'the_shelter',
+    name: 'The Shelter',
+    icon: '🏠',
+    description:
+      'Walls, a roof, and enough room to build something worth keeping.',
+    sortOrder: 1,
+    prerequisiteActivityId: 'build_shelter',
+    prerequisiteActivityUses: 1,
   },
 ];
 
@@ -516,6 +534,16 @@ const STRUCTURE_SEEDS: StructureSeed[] = [
     buildActivityId: 'build_armory',
     sortOrder: 1,
   },
+  {
+    structureId: 'class_crafting',
+    name: 'Class Crafting',
+    description:
+      'A dedicated station for spending resources to craft class points and deepen your chosen path.',
+    icon: '⚗️',
+    locationKey: 'the_shelter',
+    buildActivityId: '',
+    sortOrder: 2,
+  },
 ];
 
 interface StructureUpgradeSeed {
@@ -736,7 +764,14 @@ export const init = spacetimedb.init(ctx => {
     if (ctx.db.skillDefinition.skillId.find(seed.skillId) === null) {
       // Stamp every existing skill seed with treeId: 'beginner' since
       // SKILL_SEEDS predate the tier system.
-      ctx.db.skillDefinition.insert({ ...seed, treeId: 'beginner' });
+      ctx.db.skillDefinition.insert({
+        ...seed,
+        treeId: 'beginner',
+        capstoneBranchId: '',
+        infiniteScaling: false,
+        prerequisiteStatId: '',
+        prerequisiteStatValue: 0,
+      });
     }
   }
   for (const seed of SKILL_PREREQ_SEEDS) {
@@ -805,6 +840,9 @@ export const init = spacetimedb.init(ctx => {
   seedStatDefinitions(ctx);
   seedArmory(ctx);
   seedActions(ctx);
+  // Class system must be seeded AFTER seedSkillTrees so the 'intermediate'
+  // tree row already exists when unlock nodes are inserted.
+  seedClassSystem(ctx);
   // Migration: ensure every existing player has the default action grants
   // and a populated loadout. Idempotent; safe to run on every init.
   migrateExistingPlayersToDefaults(ctx);
@@ -1408,6 +1446,9 @@ export const signup = spacetimedb.reducer(
       skillPoints: 0, // dead column — all reads/writes go through player_skill_point_balance
       location: 'the_wastes',
       updatedAt: ctx.timestamp,
+      comboLastClickAtMicros: 0n,
+      comboBp: 0,
+      actionCount: 0n,
     });
     ctx.db.playerSkillPointBalance.insert({
       id: 0n,
@@ -1730,7 +1771,17 @@ export const upgradeSkill = spacetimedb.reducer(
         throw new SenderError('Prerequisite not met');
       }
     }
-    if (def.prerequisitePlayerLevel > 0 && ps.playerLevel < def.prerequisitePlayerLevel) {
+    // Stat-gate: takes precedence over prerequisitePlayerLevel when set.
+    if (def.prerequisiteStatId !== '' && def.prerequisiteStatId !== undefined) {
+      const totals = getStatTotals(ctx, s.username);
+      const statVal = totals[def.prerequisiteStatId] ?? 0;
+      const required = def.prerequisiteStatValue ?? 0;
+      if (statVal < required) {
+        throw new SenderError(
+          `Requires ${required} ${def.prerequisiteStatId} (you have ${statVal})`
+        );
+      }
+    } else if (def.prerequisitePlayerLevel > 0 && ps.playerLevel < def.prerequisitePlayerLevel) {
       throw new SenderError(
         `Requires player level ${def.prerequisitePlayerLevel}`
       );
@@ -1741,6 +1792,19 @@ export const upgradeSkill = spacetimedb.reducer(
       const lvl = skillLevel(ctx, s.username, extra.requiredSkillId);
       if (lvl < extra.requiredLevel) {
         throw new SenderError('Prerequisite not met');
+      }
+    }
+
+    // Capstone lock check: if this node belongs to a capstone branch and the
+    // player has already committed to a different node in that branch, reject.
+    const capstoneBranchId = def.capstoneBranchId;
+    if (capstoneBranchId !== '' && capstoneBranchId !== undefined) {
+      for (const choice of ctx.db.playerCapstoneChoice.player_capstone_choice_username.filter(s.username)) {
+        if (choice.capstoneBranchId === capstoneBranchId && choice.chosenSkillId !== skillId) {
+          throw new SenderError(
+            `Already committed to a different node in capstone branch "${capstoneBranchId}"`
+          );
+        }
       }
     }
 
@@ -1755,7 +1819,8 @@ export const upgradeSkill = spacetimedb.reducer(
     }
 
     const currentLevel = existing?.level ?? 0;
-    if (currentLevel >= def.maxLevel) {
+    // infiniteScaling nodes have no cap — skip the maxLevel check for them.
+    if (def.infiniteScaling !== true && currentLevel >= def.maxLevel) {
       throw new SenderError('Skill already at max level');
     }
 
@@ -1784,6 +1849,26 @@ export const upgradeSkill = spacetimedb.reducer(
       amount: poolRow.amount - def.costSkillPoints,
     });
 
+    // Record capstone choice on first purchase of a capstone node.
+    if (capstoneBranchId !== '' && capstoneBranchId !== undefined && currentLevel === 0) {
+      let choiceExists = false;
+      for (const choice of ctx.db.playerCapstoneChoice.player_capstone_choice_username.filter(s.username)) {
+        if (choice.capstoneBranchId === capstoneBranchId) {
+          choiceExists = true;
+          break;
+        }
+      }
+      if (!choiceExists) {
+        ctx.db.playerCapstoneChoice.insert({
+          id: 0n,
+          username: s.username,
+          capstoneBranchId,
+          chosenSkillId: skillId,
+          chosenAt: ctx.timestamp,
+        });
+      }
+    }
+
     // Apply stat grants for this skill — upserts replace prior level's contribution.
     for (const grant of ctx.db.skillStatGrant.skill_stat_grant_skill.filter(skillId)) {
       const sourceKey = `${s.username}:skill:${skillId}:${grant.statId}`;
@@ -1794,6 +1879,20 @@ export const upgradeSkill = spacetimedb.reducer(
         grant.statId,
         newLevel * grant.amountPerLevel
       );
+    }
+
+    // Class tree live update: if this skill belongs to a class tree AND the
+    // player currently has that class equipped, apply capability sources with
+    // class-namespaced keys so the equipped class reflects the new level.
+    // v1: capabilities-only — no class-namespaced stat sources until Phase 2.
+    if (CLASS_TREE_IDS.has(def.treeId)) {
+      const equipped = ctx.db.playerEquippedClass.username.find(s.username);
+      if (equipped !== null && equipped.classId === def.treeId) {
+        for (const effect of ctx.db.classNodeEffect.class_node_effect_skill_id.filter(skillId)) {
+          const sourceKey = `${s.username}:class:${def.treeId}:${skillId}:${effect.effectKey}`;
+          setCapability(ctx, sourceKey, s.username, effect.effectKey, newLevel * effect.amountPerLevel);
+        }
+      }
     }
 
     // Beginner-complete notification: fires once on the spend that maxes the

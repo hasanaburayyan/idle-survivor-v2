@@ -6,6 +6,7 @@ import { ActivityGrid, type ActivityDef } from './ActivityGrid';
 import StructureCard from './StructureCard';
 import StructureDetailScreen from './StructureDetailScreen';
 import ArmoryScreen from './ArmoryScreen';
+import ClassCraftingScreen from './ClassCraftingScreen';
 
 const SHELTER_LOCATION_KEY = 'the_shelter';
 
@@ -55,6 +56,9 @@ export default function ShelterTab() {
     if (selected) {
       if (selected.def.structureId === 'armory') {
         return <ArmoryScreen onBack={() => setSelectedStructureId(null)} />;
+      }
+      if (selected.def.structureId === 'class_crafting') {
+        return <ClassCraftingScreen onBack={() => setSelectedStructureId(null)} />;
       }
       return (
         <StructureDetailScreen
