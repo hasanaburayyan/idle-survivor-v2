@@ -1107,14 +1107,21 @@ export const myStructureUpgrades = spacetimedb.view(
   }
 );
 
+// Locations that have their own top-level tab and should NOT appear as Travel
+// destinations even though they exist as locationDefinition rows (because
+// structures live there). Add a locationKey here when promoting a location to a tab.
+const TAB_BACKED_LOCATION_KEYS = new Set(['the_shelter']);
+
 export const myTravelableLocations = spacetimedb.view(
   { name: 'my_travelable_locations', public: true },
   t.array(locationDefinition.rowType),
   ctx => {
     const s = ctx.db.session.identity.find(ctx.sender);
     if (s === null) return [];
-    return [...ctx.db.locationDefinition.iter()].filter(loc =>
-      isLocationTravelable(ctx, s.username, loc)
+    return [...ctx.db.locationDefinition.iter()].filter(
+      loc =>
+        !TAB_BACKED_LOCATION_KEYS.has(loc.locationKey) &&
+        isLocationTravelable(ctx, s.username, loc)
     );
   }
 );
