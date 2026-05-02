@@ -401,9 +401,19 @@ export default function ArmoryScreen({ onBack }: ArmoryScreenProps) {
                     </Text>
                   </SafePressable>
                   <SafePressable
-                    onPress={() => setTrashCandidate(it.instanceId)}
+                    onPress={e => {
+                      // Web: shift-click bypasses the confirm modal for power-user bulk trashing.
+                      // The cast is needed because RN's GestureResponderEvent type doesn't
+                      // expose modifier keys, but on web nativeEvent IS a MouseEvent.
+                      const ne = e.nativeEvent as unknown as { shiftKey?: boolean };
+                      if (ne.shiftKey) {
+                        onTrash(it.instanceId);
+                      } else {
+                        setTrashCandidate(it.instanceId);
+                      }
+                    }}
                     disabled={busy !== null}
-                    accessibilityLabel="Trash this item"
+                    accessibilityLabel="Trash this item (shift-click to skip confirmation)"
                     className="rounded-lg py-2 px-3 items-center justify-center bg-slate-900 border border-rose-900"
                   >
                     <Text className="text-xs font-medium text-rose-400">
