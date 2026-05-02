@@ -2,6 +2,7 @@ import { t, SenderError } from 'spacetimedb/server';
 import spacetimedb from './schema';
 import { clearStatSourcesByPrefix } from './stats';
 import { addPoolBalance } from './skill_tree';
+import { grantKnownAction, revokeKnownActionsByPrefix } from './actions';
 import {
   playerEquippedClass,
   classNodeEffect,
@@ -289,6 +290,159 @@ export const myCapabilityTotals = spacetimedb.view(
 
 const SWAP_COST_UNITS = 100n; // base resource units to equip/swap a class
 
+// ---------- Class action defs ----------
+// Two thematic, slightly-more-powerful battle actions per class. Granted via
+// playerKnownAction at equipClass time with sourceKey
+//   `{username}:class:{classId}:action:{actionId}`
+// and revoked on unequipClass. The actionDefinition + actionStatScaling rows
+// themselves are seeded by seedClassSystem (below) so they're available for
+// players to slot in their loadout once the class is equipped.
+
+interface ClassActionDef {
+  classId: string;
+  actionId: string;
+  displayName: string;
+  description: string;
+  iconKey: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  targeting: { tag: string; value?: any };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  effect: { tag: string; value: any };
+  sortOrder: number;
+}
+
+const CLASS_ACTION_DEFS: ClassActionDef[] = [
+  // ---------- Brute ----------
+  {
+    classId: 'brute',
+    actionId: 'crushing_blow',
+    displayName: 'Crushing Blow',
+    description: 'Slam one enemy with everything. Heavy damage, scales hard with Power.',
+    iconKey: 'action_crushing_blow',
+    targeting: { tag: 'singleEnemy' },
+    effect: { tag: 'damage', value: { baseMin: 5, baseMax: 9 } },
+    sortOrder: 100,
+  },
+  {
+    classId: 'brute',
+    actionId: 'iron_stand',
+    displayName: 'Iron Stand',
+    description: 'Plant your feet. Grants the party two ward charges.',
+    iconKey: 'action_iron_stand',
+    targeting: { tag: 'partyIncludingSelf' },
+    effect: { tag: 'ward', value: { baseCount: 2 } },
+    sortOrder: 101,
+  },
+  // ---------- Generalist ----------
+  {
+    classId: 'generalist',
+    actionId: 'tactical_volley',
+    displayName: 'Tactical Volley',
+    description: 'Calculated strikes across the line. Modest AoE, scales with Focus and Power.',
+    iconKey: 'action_tactical_volley',
+    targeting: { tag: 'allEnemies' },
+    effect: { tag: 'damage', value: { baseMin: 2, baseMax: 4 } },
+    sortOrder: 110,
+  },
+  {
+    classId: 'generalist',
+    actionId: 'coordinate',
+    displayName: 'Coordinate',
+    description: 'Read the fight, call the play. Heals the party for a meaningful chunk.',
+    iconKey: 'action_coordinate',
+    targeting: { tag: 'partyIncludingSelf' },
+    effect: { tag: 'healAmount', value: { baseMin: 2, baseMax: 6 } },
+    sortOrder: 111,
+  },
+  // ---------- Striker ----------
+  {
+    classId: 'striker',
+    actionId: 'lightning_slash',
+    displayName: 'Lightning Slash',
+    description: 'A precision opener — high ceiling, scales hard with Power.',
+    iconKey: 'action_lightning_slash',
+    targeting: { tag: 'singleEnemy' },
+    effect: { tag: 'damage', value: { baseMin: 4, baseMax: 7 } },
+    sortOrder: 120,
+  },
+  {
+    classId: 'striker',
+    actionId: 'flurry',
+    displayName: 'Flurry',
+    description: 'A stream of consistent strikes. Tight damage band, both ends grow with Power.',
+    iconKey: 'action_flurry',
+    targeting: { tag: 'singleEnemy' },
+    effect: { tag: 'damage', value: { baseMin: 3, baseMax: 4 } },
+    sortOrder: 121,
+  },
+  // ---------- Wanderer ----------
+  {
+    classId: 'wanderer',
+    actionId: 'wildshot',
+    displayName: 'Wildshot',
+    description: 'Pure variance — could whiff, could devastate. Fortune scales the ceiling, the floor stays at zero.',
+    iconKey: 'action_wildshot',
+    targeting: { tag: 'singleEnemy' },
+    effect: { tag: 'damage', value: { baseMin: 0, baseMax: 3 } },
+    sortOrder: 130,
+  },
+  {
+    classId: 'wanderer',
+    actionId: 'lucky_draw',
+    displayName: 'Lucky Draw',
+    description: 'A sharper-than-average roll. Fortune pushes the ceiling, floor stays modest.',
+    iconKey: 'action_lucky_draw',
+    targeting: { tag: 'singleEnemy' },
+    effect: { tag: 'damage', value: { baseMin: 2, baseMax: 3 } },
+    sortOrder: 131,
+  },
+];
+
+interface ClassActionScaling {
+  actionId: string;
+  statId: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  scalingKind: { tag: string; value?: any };
+}
+
+const CLASS_ACTION_SCALINGS: ClassActionScaling[] = [
+  // Brute
+  { actionId: 'crushing_blow', statId: 'power', scalingKind: { tag: 'addToBoth', value: { perPoint: 2 } } },
+  // iron_stand: ward count is fixed at 2; no stat scaling
+  // Generalist
+  { actionId: 'tactical_volley', statId: 'power', scalingKind: { tag: 'addToBoth', value: { perPoint: 1 } } },
+  { actionId: 'tactical_volley', statId: 'focus', scalingKind: { tag: 'addToMax', value: { perPoint: 1 } } },
+  { actionId: 'coordinate', statId: 'focus', scalingKind: { tag: 'addToMax', value: { perPoint: 2 } } },
+  // Striker
+  { actionId: 'lightning_slash', statId: 'power', scalingKind: { tag: 'addToMax', value: { perPoint: 3 } } },
+  { actionId: 'flurry', statId: 'power', scalingKind: { tag: 'addToBoth', value: { perPoint: 2 } } },
+  // Wanderer
+  { actionId: 'wildshot', statId: 'fortune', scalingKind: { tag: 'addToMax', value: { perPoint: 5 } } },
+  { actionId: 'lucky_draw', statId: 'fortune', scalingKind: { tag: 'addToMax', value: { perPoint: 4 } } },
+];
+
+const CLASS_ACTIONS_BY_CLASS = (() => {
+  const m = new Map<string, string[]>();
+  for (const a of CLASS_ACTION_DEFS) {
+    const list = m.get(a.classId) ?? [];
+    list.push(a.actionId);
+    m.set(a.classId, list);
+  }
+  return m;
+})();
+
+function classActionSourceKey(username: string, classId: string, actionId: string): string {
+  return `${username}:class:${classId}:action:${actionId}`;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function grantClassActions(ctx: any, username: string, classId: string): void {
+  const ids = CLASS_ACTIONS_BY_CLASS.get(classId) ?? [];
+  for (const actionId of ids) {
+    grantKnownAction(ctx, classActionSourceKey(username, classId, actionId), username, actionId);
+  }
+}
+
 export const equipClass = spacetimedb.reducer(
   { classId: t.string() },
   (ctx, { classId }) => {
@@ -364,15 +518,17 @@ export const equipClass = spacetimedb.reducer(
       }
     }
 
-    // 7. Clear previous class's stat + capability sources
+    // 7. Clear previous class's stat + capability sources + class actions
     if (prevClassId !== '') {
       const prevPrefix = `${s.username}:class:${prevClassId}:`;
       clearStatSourcesByPrefix(ctx, s.username, prevPrefix);
       clearCapabilitiesByPrefix(ctx, s.username, prevPrefix);
+      revokeKnownActionsByPrefix(ctx, s.username, prevPrefix, `swapped to ${classId}`);
     }
 
-    // 8. Apply new class's effects for all purchased nodes
+    // 8. Apply new class's effects for all purchased nodes + grant class actions
     applyClassEffects(ctx, s.username, classId);
+    grantClassActions(ctx, s.username, classId);
 
     // 9. Upsert player_equipped_class
     if (existingEquip !== null) {
@@ -423,10 +579,11 @@ export const unequipClass = spacetimedb.reducer(ctx => {
 
   const prevClassId = existingEquip.classId;
 
-  // Clear the class's stat + capability sources
+  // Clear the class's stat + capability sources + class actions
   const prevPrefix = `${s.username}:class:${prevClassId}:`;
   clearStatSourcesByPrefix(ctx, s.username, prevPrefix);
   clearCapabilitiesByPrefix(ctx, s.username, prevPrefix);
+  revokeKnownActionsByPrefix(ctx, s.username, prevPrefix, 'class unequipped');
 
   // Set classId to '' (keep the row for future equip to find)
   ctx.db.playerEquippedClass.username.update({
@@ -1679,6 +1836,8 @@ const ALL_CLASS_EFFECT_SEEDS: ClassNodeEffectSeed[] = [
 
 /**
  * Seeds all class system definitions. Idempotent — safe to call on every init.
+/**
+ * Seeds class system definitions. Idempotent — safe to call on every init.
  * Must be called AFTER seedSkillTrees() so the intermediate treeId row exists.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1793,6 +1952,38 @@ export function seedClassSystem(ctx: any): void {
         resourceId: seed.resourceId,
         amountPerPoint: seed.amountPerPoint,
       });
+    }
+  }
+
+  // 7. Class action definitions + scaling rows. The grant of these to players
+  // happens in equipClass; this just makes the action_definition rows exist.
+  for (const def of CLASS_ACTION_DEFS) {
+    const existing = ctx.db.actionDefinition.actionId.find(def.actionId);
+    const row = {
+      actionId: def.actionId,
+      displayName: def.displayName,
+      description: def.description,
+      iconKey: def.iconKey,
+      targeting: def.targeting,
+      effect: def.effect,
+      sortOrder: def.sortOrder,
+    };
+    if (existing === null) {
+      ctx.db.actionDefinition.insert(row);
+    } else {
+      ctx.db.actionDefinition.actionId.update({ ...existing, ...row });
+    }
+  }
+  for (const scaling of CLASS_ACTION_SCALINGS) {
+    let exists = false;
+    for (const row of ctx.db.actionStatScaling.action_stat_scaling_action.filter(scaling.actionId)) {
+      if (row.statId === scaling.statId && row.scalingKind.tag === scaling.scalingKind.tag) {
+        exists = true;
+        break;
+      }
+    }
+    if (!exists) {
+      ctx.db.actionStatScaling.insert({ id: 0n, ...scaling });
     }
   }
 }
