@@ -865,6 +865,9 @@ export const onConnect = spacetimedb.clientConnected(_ctx => {});
 export const runSeedMigration = spacetimedb.reducer(ctx => {
   seedSkillTrees(ctx);
   seedClassSystem(ctx);
+  seedArmory(ctx);
+  seedActions(ctx);
+  seedStatDefinitions(ctx);
 });
 
 export const onDisconnect = spacetimedb.clientDisconnected(ctx => {

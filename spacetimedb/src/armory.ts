@@ -517,14 +517,22 @@ interface AffixSeed {
 }
 
 const AFFIX_SEEDS: AffixSeed[] = [
-  // Rucksack
+  // Rucksack — guaranteed Fortune; optional pool spans the other three stats so
+  // Master Crafter (CRAFT_EXTRA_OPTIONAL_COUNT) has material to roll into.
   { itemDefId: 'rucksack', statId: 'fortune', minAmount: 1, maxAmount: 10, rollWeight: 5, isGuaranteed: true },
   { itemDefId: 'rucksack', statId: 'focus', minAmount: 1, maxAmount: 5, rollWeight: 3, isGuaranteed: false },
-  // Handgun
+  { itemDefId: 'rucksack', statId: 'vigor', minAmount: 1, maxAmount: 4, rollWeight: 2, isGuaranteed: false },
+  { itemDefId: 'rucksack', statId: 'power', minAmount: 1, maxAmount: 4, rollWeight: 2, isGuaranteed: false },
+  // Handgun — guaranteed Power; optional pool covers the other three stats.
   { itemDefId: 'handgun', statId: 'power', minAmount: 1, maxAmount: 10, rollWeight: 5, isGuaranteed: true },
   { itemDefId: 'handgun', statId: 'vigor', minAmount: 1, maxAmount: 8, rollWeight: 3, isGuaranteed: false },
-  // Armor Vest
+  { itemDefId: 'handgun', statId: 'focus', minAmount: 1, maxAmount: 4, rollWeight: 2, isGuaranteed: false },
+  { itemDefId: 'handgun', statId: 'fortune', minAmount: 1, maxAmount: 4, rollWeight: 2, isGuaranteed: false },
+  // Armor Vest — guaranteed Vigor; optional pool covers the other three stats.
   { itemDefId: 'armor_vest', statId: 'vigor', minAmount: 3, maxAmount: 15, rollWeight: 5, isGuaranteed: true },
+  { itemDefId: 'armor_vest', statId: 'focus', minAmount: 1, maxAmount: 4, rollWeight: 2, isGuaranteed: false },
+  { itemDefId: 'armor_vest', statId: 'fortune', minAmount: 1, maxAmount: 4, rollWeight: 2, isGuaranteed: false },
+  { itemDefId: 'armor_vest', statId: 'power', minAmount: 1, maxAmount: 4, rollWeight: 2, isGuaranteed: false },
 ];
 
 interface RollSeed {
