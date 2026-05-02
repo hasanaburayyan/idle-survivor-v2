@@ -110,6 +110,7 @@ function ScavengeCell({
 
   const activityLevel = state?.level ?? 0;
   const scrap = playerStates[0]?.scrap ?? 0n;
+  const comboBp = playerStates[0]?.comboBp ?? 0;
 
   const prefix = def.skillChainPrefix || 'scavenge';
   const multiplierLvl =
@@ -170,6 +171,26 @@ function ScavengeCell({
         {def.name}
       </Text>
       <View ref={spotlight.ref} onLayout={spotlight.onLayout}>
+        {comboBp > 0 ? (
+          <View
+            pointerEvents="none"
+            style={{
+              position: 'absolute',
+              top: -6,
+              right: -10,
+              zIndex: 5,
+              paddingHorizontal: 6,
+              paddingVertical: 2,
+              borderRadius: 999,
+              backgroundColor:
+                comboBp >= 3000 ? '#f43f5e' : comboBp >= 1000 ? '#f59e0b' : '#475569',
+            }}
+          >
+            <Text className="text-[10px] font-semibold text-white">
+              {(comboBp / 100).toFixed(0)}%
+            </Text>
+          </View>
+        ) : null}
         <Animated.View style={{ transform: [{ scale: pressAnim }] }}>
           <SafePressable
             ref={r => (buttonRef.current = r)}

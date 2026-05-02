@@ -20,6 +20,7 @@ import DefensiveBattleLobby from './DefensiveBattleLobby';
 import DefensiveBattleScreen from './DefensiveBattleScreen';
 import { ScrapFlowProvider } from './ScrapFlow';
 import AutomationFeedback from './AutomationFeedback';
+import FortuneProcFeedback from './FortuneProcFeedback';
 import NotificationBell from './NotificationBell';
 import ResourceStrip from './ResourceStrip';
 import { SpotlightTargetProvider } from './SpotlightTargetRegistry';
@@ -62,6 +63,7 @@ function HomeScreenInner({ username }: HomeScreenProps) {
   return (
     <SafeAreaView className="flex-1 bg-slate-950">
       <AutomationFeedback />
+      <FortuneProcFeedback />
       <View
         className="px-4 py-2 border-b border-slate-800 gap-2"
         style={{ zIndex: 50, elevation: 50 }}

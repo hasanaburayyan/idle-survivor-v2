@@ -42,7 +42,8 @@ import './minigames/rhythmTap';
 import { seedCardDefinitions } from './minigames/cardDuel';
 import './minigames/cardDuel';
 import { seedStatDefinitions, setStatSource, getStatTotals } from './stats';
-import { seedClassSystem, CLASS_TREE_IDS, setCapability } from './class';
+import { seedClassSystem, CLASS_TREE_IDS, setCapability, CAPABILITY_KEYS, getCapabilityTotal } from './class';
+import { buildSeed, Rng } from './rng';
 import { seedArmory } from './armory';
 import {
   seedActions,
@@ -111,6 +112,7 @@ export {
   myItemInstances,
   myItemInstanceAffixes,
   myEquipment,
+  myArmoryUpgradeCost,
   upgradeArmory,
   craftItem,
   equipItem,
@@ -119,9 +121,13 @@ export {
 export {
   equipClass,
   unequipClass,
+  craftClassPoint,
+  refundCapstoneChoice,
   myEquippedClass,
   myClassCraftProgress,
   myCapstoneChoices,
+  myClassCraftTier,
+  myCapabilityTotals,
 } from './class';
 
 export default spacetimedb;
@@ -1510,6 +1516,129 @@ export const logout = spacetimedb.reducer(ctx => {
 const MAX_GROUP_SIZE = 5;
 const CONTRIBUTION_TTL_MICROS = 10_000_000n;
 
+// ---------- Capability post-processing helpers ----------
+
+/**
+ * Rolls the fortune proc for a given yield event and awards any bonus resource.
+ * Accumulates the bonus into a dedup-keyed notification within a 5-second window
+ * so multiple rapid procs merge into one toast rather than spamming the inbox.
+ * Also handles the cascade (one re-roll after proc) and quartermaster drop.
+ *
+ * actionCount is used to vary the PRNG seed even when timestamp alone would
+ * be identical (two consecutive clicks in the same microsecond-tick window).
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function applyFortuneProc(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  ctx: any,
+  username: string,
+  resourceId: string,
+  gain: bigint,
+  actionCount: bigint
+): void {
+  if (gain <= 0n) return;
+  const chanceBp = getCapabilityTotal(ctx, username, CAPABILITY_KEYS.FORTUNE_PROC_CHANCE_BP);
+  if (chanceBp <= 0) return;
+
+  const seed = buildSeed([ctx.timestamp.microsSinceUnixEpoch, username, actionCount, resourceId, 'fortune']);
+  const rng = new Rng(seed);
+  if (rng.uniform() >= chanceBp / 10000) return;
+
+  // Fortune proc fired — award bonus resource.
+  const multBp = getCapabilityTotal(ctx, username, CAPABILITY_KEYS.FORTUNE_PROC_MULTIPLIER_BP);
+  const bonus = multBp > 0 ? (gain * BigInt(multBp)) / 10000n : gain;
+  if (bonus > 0n) addResource(ctx, username, resourceId, bonus);
+
+  // Cascade check — one extra re-roll, no further recursion.
+  const cascadeChanceBp = getCapabilityTotal(ctx, username, CAPABILITY_KEYS.FORTUNE_CASCADE_CHANCE_BP);
+  let cascadeBonus = 0n;
+  if (cascadeChanceBp > 0 && rng.uniform() < cascadeChanceBp / 10000) {
+    cascadeBonus = bonus;
+    if (cascadeBonus > 0n) addResource(ctx, username, resourceId, cascadeBonus);
+  }
+
+  // Quartermaster drop — on proc, small chance to award one 'parts' as bonus loot.
+  const dropChanceBp = getCapabilityTotal(ctx, username, CAPABILITY_KEYS.FORTUNE_PROC_DROPS_ITEM_BP);
+  if (dropChanceBp > 0 && rng.uniform() < dropChanceBp / 10000) {
+    addResource(ctx, username, 'parts', 1n);
+  }
+
+  // Dedup-accumulate notification: merge into existing entry within 5-second window.
+  const epochWindow = ctx.timestamp.microsSinceUnixEpoch / 5_000_000n;
+  const dedupeKey = `fortuneProc:${username}:${resourceId}:${epochWindow.toString()}`;
+  let accumulated = bonus + cascadeBonus;
+  for (const n of ctx.db.notification.notification_recipient.filter(username)) {
+    if (n.dedupeKey !== dedupeKey) continue;
+    const m = n.summary.match(/\+(\d+)/);
+    if (m) accumulated += BigInt(m[1]!);
+    ctx.db.notification.notificationId.delete(n.notificationId);
+    break;
+  }
+  ctx.db.notification.insert({
+    notificationId: 0n,
+    recipient: username,
+    kind: { tag: 'system' as const },
+    summary: `Fortune! +${accumulated.toString()} ${resourceId}`,
+    createdAt: ctx.timestamp,
+    readAt: undefined,
+    actionableRefId: undefined,
+    dedupeKey,
+  });
+}
+
+/**
+ * Wide-net: for each OTHER resource that the player has unlocked, awards
+ * floor(primaryGain * wideNetBp / 10000) of that resource.
+ * Hidden-caches overflow: each side-resource has a chance to also award one
+ * unit of the next-tier resource (determined by sortOrder + 1).
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function applyWideNet(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  ctx: any,
+  username: string,
+  primaryResourceId: string,
+  primaryGain: bigint,
+  actionCount: bigint
+): void {
+  if (primaryGain <= 0n) return;
+  const wideNetBp = getCapabilityTotal(ctx, username, CAPABILITY_KEYS.WIDE_NET_PCT_BP);
+  if (wideNetBp <= 0) return;
+
+  const sideAmount = (primaryGain * BigInt(wideNetBp)) / 10000n;
+  if (sideAmount <= 0n) return;
+
+  const overflowBp = getCapabilityTotal(ctx, username, CAPABILITY_KEYS.WIDE_NET_OVERFLOW_BP);
+
+  for (const resDef of ctx.db.resourceDefinition.iter()) {
+    if (resDef.resourceId === primaryResourceId) continue;
+
+    // Skip resources gated behind skills the player hasn't reached yet.
+    if (resDef.unlockSkillId !== '') {
+      if (skillLevel(ctx, username, resDef.unlockSkillId) < resDef.unlockSkillLevel) continue;
+    }
+
+    addResource(ctx, username, resDef.resourceId, sideAmount);
+
+    // Hidden caches overflow: chance to award the next-tier resource.
+    if (overflowBp > 0) {
+      const overflowSeed = buildSeed([
+        ctx.timestamp.microsSinceUnixEpoch, username, actionCount, resDef.resourceId, 'overflow',
+      ]);
+      const overflowRng = new Rng(overflowSeed);
+      if (overflowRng.uniform() < overflowBp / 10000) {
+        const targetSortOrder = resDef.sortOrder + 1;
+        for (const above of ctx.db.resourceDefinition.iter()) {
+          if (above.sortOrder === targetSortOrder) {
+            addResource(ctx, username, above.resourceId, sideAmount);
+            break;
+          }
+        }
+      }
+    }
+  }
+}
+
 interface ScavengeResult {
   gain: bigint;
   yieldResourceId: string;
@@ -1628,7 +1757,7 @@ export const scavengeActivity = spacetimedb.reducer(
     if (def === null || def.kind !== 'scavenge') {
       throw new SenderError('Unknown activity');
     }
-    const ps = ctx.db.playerState.username.find(s.username);
+    let ps = ctx.db.playerState.username.find(s.username);
     if (ps === null) throw new SenderError('Player state missing');
     if (!isActivityVisible(ctx, s.username, def, ps.location)) {
       throw new SenderError('Activity is not available here');
@@ -1636,7 +1765,98 @@ export const scavengeActivity = spacetimedb.reducer(
     if (!activityCostsAffordable(ctx, s.username, activityId)) {
       throw new SenderError('Cannot afford costs');
     }
-    performScavengeActivity(ctx, s.username, activityId, 100, true);
+
+    // Monotonic action counter — seeds fortune/crit PRNG uniquely per click
+    // even if two clicks land in the same microsecond tick.
+    const newActionCount = ps.actionCount + 1n;
+    ctx.db.playerState.username.update({
+      ...ps,
+      actionCount: newActionCount,
+      updatedAt: ctx.timestamp,
+    });
+    // Re-fetch after update so performScavengeActivity inherits the new counter.
+    ps = ctx.db.playerState.username.find(s.username)!;
+
+    // === Combo state (Striker path) ===
+    const comboEnabled = getCapabilityTotal(ctx, s.username, CAPABILITY_KEYS.MANUAL_CLICK_COMBO_ENABLED);
+    let comboBp = 0;
+    if (comboEnabled > 0) {
+      const nowMicros = ctx.timestamp.microsSinceUnixEpoch;
+      // Combo maintained if next click arrives within 3 seconds of the previous.
+      const COMBO_WINDOW_MICROS = 3_000_000n;
+      const COMBO_BP_PER_CLICK = 500; // +5% per hit
+      const MAX_COMBO_BP = 5000;      // cap at +50%
+      const elapsed = ps.comboLastClickAtMicros > 0n
+        ? nowMicros - ps.comboLastClickAtMicros
+        : COMBO_WINDOW_MICROS + 1n; // treat "never clicked" as expired
+      comboBp = elapsed <= COMBO_WINDOW_MICROS
+        ? Math.min(ps.comboBp + COMBO_BP_PER_CLICK, MAX_COMBO_BP)
+        : 0;
+      ctx.db.playerState.username.update({
+        ...ctx.db.playerState.username.find(s.username)!,
+        comboLastClickAtMicros: nowMicros,
+        comboBp,
+        updatedAt: ctx.timestamp,
+      });
+      ps = ctx.db.playerState.username.find(s.username)!;
+    }
+
+    // === yieldPer100 assembly ===
+    // Start at 100 (= normal yield). Each additive bonus adds percentage points.
+    // MANUAL_CLICK_YIELD_PCT_BP: 1000 bp = +10% → +10 yield points.
+    const clickYieldBp = getCapabilityTotal(ctx, s.username, CAPABILITY_KEYS.MANUAL_CLICK_YIELD_PCT_BP);
+    let yieldPer100 = 100 + Math.floor(clickYieldBp / 100) + Math.floor(comboBp / 100);
+
+    // === Crit ===
+    const critChanceBp = getCapabilityTotal(ctx, s.username, CAPABILITY_KEYS.MANUAL_CLICK_CRIT_CHANCE_BP);
+    const critMultiplierBp = getCapabilityTotal(ctx, s.username, CAPABILITY_KEYS.MANUAL_CLICK_CRIT_MULTIPLIER_BP);
+    if (critChanceBp > 0) {
+      const critSeed = buildSeed([ctx.timestamp.microsSinceUnixEpoch, s.username, newActionCount, 'crit']);
+      const critRng = new Rng(critSeed);
+      if (critRng.uniform() < critChanceBp / 10000) {
+        // Crit: multiply the accumulated yieldPer100 by (1 + multiplierBp/10000).
+        const critMult = 1 + (critMultiplierBp > 0 ? critMultiplierBp : 10000) / 10000;
+        yieldPer100 = Math.floor(yieldPer100 * critMult);
+      }
+    }
+
+    // === Main click ===
+    const mainResult = performScavengeActivity(ctx, s.username, activityId, yieldPer100, true);
+    const resourceId = mainResult.yieldResourceId;
+    let totalGain = mainResult.gain;
+
+    // === Extra ticks (MANUAL_CLICK_TICK_COUNT) ===
+    // Each extra tick is a free additional yield pass (costs checked independently).
+    const tickCount = getCapabilityTotal(ctx, s.username, CAPABILITY_KEYS.MANUAL_CLICK_TICK_COUNT);
+    for (let i = 0; i < tickCount; i++) {
+      const extra = performScavengeActivity(ctx, s.username, activityId, 100, true);
+      totalGain += extra.gain;
+    }
+
+    if (totalGain <= 0n || resourceId === '') return;
+
+    // === Fortune proc ===
+    applyFortuneProc(ctx, s.username, resourceId, totalGain, newActionCount);
+
+    // === Wide net ===
+    applyWideNet(ctx, s.username, resourceId, totalGain, newActionCount);
+
+    // === Progress all automation slots ===
+    // MANUAL_CLICK_PROGRESSES_ALL_SLOTS: each manual click also fires one free
+    // scavenge tick for every automation-slotted structure the player has.
+    const progressAllSlots = getCapabilityTotal(
+      ctx, s.username, CAPABILITY_KEYS.MANUAL_CLICK_PROGRESSES_ALL_SLOTS
+    );
+    if (progressAllSlots > 0) {
+      for (const tick of ctx.db.automationTick.automation_tick_username.filter(s.username)) {
+        if (tick.activityId === activityId) continue; // already handled above
+        const slotResult = performScavengeActivity(ctx, s.username, tick.activityId, 100, false);
+        if (slotResult.gain > 0n) {
+          // Wide net applies to slot auto-fires too (fortune proc skipped to limit spam).
+          applyWideNet(ctx, s.username, slotResult.yieldResourceId, slotResult.gain, newActionCount);
+        }
+      }
+    }
   }
 );
 
@@ -2051,6 +2271,18 @@ export const runAutomation = spacetimedb.reducer(
     if (structure === null) return;
     if (structure.slottedActivityId !== arg.activityId) return;
 
+    // AUTOMATION_SLOT: total allowed automation slots = 1 + capability total.
+    // Count active ticks to enforce the cap (ticks don't carry a slot index,
+    // so we measure via the live row count for this player).
+    const maxSlots = 1 + getCapabilityTotal(ctx, arg.username, CAPABILITY_KEYS.AUTOMATION_SLOT);
+    let tickCount = 0;
+    for (const _ of ctx.db.automationTick.automation_tick_username.filter(arg.username)) {
+      tickCount += 1;
+    }
+    // The current row has NOT been deleted yet (scheduled reducers auto-delete
+    // after the reducer returns), so the live count includes this tick.
+    if (tickCount > maxSlots) return;
+
     let yieldPer100 = 100;
     for (const up of ctx.db.structureUpgradeDefinition.structure_upgrade_definition_structure.filter(
       arg.structureId
@@ -2059,6 +2291,9 @@ export const runAutomation = spacetimedb.reducer(
       const lvl = structureUpgradeLevel(ctx, arg.username, up.upgradeId);
       yieldPer100 += lvl * up.yieldPerLevelPer100;
     }
+    // AUTOMATION_YIELD_PCT_BP: class-tree bonus on top of efficiency upgrades.
+    const autoYieldBp = getCapabilityTotal(ctx, arg.username, CAPABILITY_KEYS.AUTOMATION_YIELD_PCT_BP);
+    yieldPer100 += Math.floor(autoYieldBp / 100);
 
     const result = performScavengeActivity(
       ctx,
@@ -2069,6 +2304,12 @@ export const runAutomation = spacetimedb.reducer(
     );
 
     if (result.gain > 0n) {
+      // Automation fortune proc and wide net — seed action count from timestamp
+      // + structureId to keep seeds distinct across concurrent ticks.
+      const autoActionCount = ctx.timestamp.microsSinceUnixEpoch ^ BigInt(arg.structureId.length);
+      applyFortuneProc(ctx, arg.username, result.yieldResourceId, result.gain, autoActionCount);
+      applyWideNet(ctx, arg.username, result.yieldResourceId, result.gain, autoActionCount);
+
       const nowMicros = ctx.timestamp.microsSinceUnixEpoch;
       for (const old of ctx.db.automationEvent.automation_event_username.filter(
         arg.username

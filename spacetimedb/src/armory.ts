@@ -2,6 +2,7 @@ import { t, SenderError } from 'spacetimedb/server';
 import spacetimedb from './schema';
 import { Rng, buildSeed, pickWeightedWithoutReplacement, rollAffixAmount } from './rng';
 import { setStatSource, clearStatSourcesByPrefix } from './stats';
+import { CAPABILITY_KEYS, getCapabilityTotal } from './class';
 import {
   itemDefinition,
   itemDefinitionAffix,
@@ -201,6 +202,38 @@ export const myEquipment = spacetimedb.view(
   }
 );
 
+// Discounted armory upgrade costs for the player's next level.
+// Bakes ARMORY_COST_REDUCTION_BP into discountedAmount so the client
+// never needs to re-apply the math locally.
+const ArmoryUpgradeCostDiscountedRow = t.object('ArmoryUpgradeCostDiscountedRow', {
+  resourceId: t.string(),
+  originalAmount: t.u64(),
+  discountedAmount: t.u64(),
+  targetLevel: t.u32(),
+});
+
+export const myArmoryUpgradeCost = spacetimedb.view(
+  { name: 'my_armory_upgrade_cost', public: true },
+  t.array(ArmoryUpgradeCostDiscountedRow),
+  ctx => {
+    const s = ctx.db.session.identity.find(ctx.sender);
+    if (s === null) return [];
+    const state = ctx.db.playerArmoryState.username.find(s.username);
+    const currentLevel = state?.level ?? 0;
+    const targetLevel = currentLevel + 1;
+    if (targetLevel > MAX_ARMORY_LEVEL) return [];
+    const reductionBp = getCapabilityTotal(ctx, s.username, CAPABILITY_KEYS.ARMORY_COST_REDUCTION_BP);
+    const costMult = Math.max(0, 1 - reductionBp / 10000);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result: any[] = [];
+    for (const c of ctx.db.armoryUpgradeCost.armory_upgrade_cost_level.filter(targetLevel)) {
+      const discountedAmount = BigInt(Math.max(1, Math.floor(Number(c.amount) * costMult)));
+      result.push({ resourceId: c.resourceId, originalAmount: c.amount, discountedAmount, targetLevel });
+    }
+    return result;
+  }
+);
+
 // ---------- Reducers ----------
 
 export const upgradeArmory = spacetimedb.reducer(ctx => {
@@ -215,13 +248,18 @@ export const upgradeArmory = spacetimedb.reducer(ctx => {
   if (costs.length === 0) {
     throw new SenderError('No upgrade cost defined for next level');
   }
+  // ARMORY_COST_REDUCTION_BP: e.g. 2000 bp = 20% off.  Floor to 1 to prevent free upgrades.
+  const reductionBp = getCapabilityTotal(ctx, s.username, CAPABILITY_KEYS.ARMORY_COST_REDUCTION_BP);
+  const costMult = Math.max(0, 1 - reductionBp / 10000);
   for (const c of costs) {
-    if (getResource(ctx, s.username, c.resourceId) < c.amount) {
+    const effectiveAmount = BigInt(Math.max(1, Math.floor(Number(c.amount) * costMult)));
+    if (getResource(ctx, s.username, c.resourceId) < effectiveAmount) {
       throw new SenderError(`Insufficient ${c.resourceId}`);
     }
   }
   for (const c of costs) {
-    spendResource(ctx, s.username, c.resourceId, c.amount);
+    const effectiveAmount = BigInt(Math.max(1, Math.floor(Number(c.amount) * costMult)));
+    spendResource(ctx, s.username, c.resourceId, effectiveAmount);
   }
   ctx.db.playerArmoryState.username.update({
     ...state,
@@ -273,20 +311,25 @@ export const craftItem = spacetimedb.reducer(
     const optionalPool = allAffixes
       .filter(a => !a.isGuaranteed)
       .map(a => ({ item: a, weight: a.rollWeight }));
-    const optionalCount = Math.min(rollDef.optionalRollCount, optionalPool.length);
+    // CRAFT_EXTRA_OPTIONAL_COUNT: master crafter node adds extra optional affix rolls.
+    const extraOptional = getCapabilityTotal(ctx, s.username, CAPABILITY_KEYS.CRAFT_EXTRA_OPTIONAL_COUNT);
+    const optionalCount = Math.min(rollDef.optionalRollCount + extraOptional, optionalPool.length);
     const chosenOptional = pickWeightedWithoutReplacement(rng, optionalPool, optionalCount);
 
+    // CRAFT_AFFIX_BIAS_BP: skews the roll distribution toward higher amounts.
+    const craftAffixBiasBp = getCapabilityTotal(ctx, s.username, CAPABILITY_KEYS.CRAFT_AFFIX_BIAS_BP);
+    const extraBias = craftAffixBiasBp / 10000;
     const rolled: { statId: string; amount: number }[] = [];
     for (const a of guaranteed) {
       rolled.push({
         statId: a.statId,
-        amount: rollAffixAmount(rng, a.minAmount, a.maxAmount, state.level, MAX_ARMORY_LEVEL),
+        amount: rollAffixAmount(rng, a.minAmount, a.maxAmount, state.level, MAX_ARMORY_LEVEL, extraBias),
       });
     }
     for (const a of chosenOptional) {
       rolled.push({
         statId: a.statId,
-        amount: rollAffixAmount(rng, a.minAmount, a.maxAmount, state.level, MAX_ARMORY_LEVEL),
+        amount: rollAffixAmount(rng, a.minAmount, a.maxAmount, state.level, MAX_ARMORY_LEVEL, extraBias),
       });
     }
 

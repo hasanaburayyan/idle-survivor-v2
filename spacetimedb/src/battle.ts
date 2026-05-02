@@ -4,6 +4,7 @@ import spacetimedb from './schema';
 import { insertNotification, deleteNotificationByRef } from './notifications';
 import { getStatTotals } from './stats';
 import { resolveActionForBattle } from './actions';
+import { CAPABILITY_KEYS, getCapabilityTotal } from './class';
 import {
   defensiveBattleSession,
   defensiveBattleParticipant,
@@ -375,7 +376,9 @@ function startBattle(ctx: any, sessionId: bigint): void {
     const vigor = totals['vigor'] ?? 0;
     const focus = totals['focus'] ?? 0;
     const maxHp = hpFromVigor(vigor);
-    const handSize = handSizeFromFocus(focus);
+    // COMBAT_HAND_SIZE_BONUS: class tree nodes add flat cards to hand (no upper bound, per spec).
+    const handSizeBonus = getCapabilityTotal(ctx, p.username, CAPABILITY_KEYS.COMBAT_HAND_SIZE_BONUS);
+    const handSize = handSizeFromFocus(focus) + handSizeBonus;
     ctx.db.defensiveBattleParticipant.id.update({
       ...p,
       maxHp,
@@ -457,7 +460,9 @@ function runGameOverChecks(ctx: any, sessionId: bigint): void {
   for (const p of participants) {
     const totals = snapshotMap(ctx, sessionId, p.username);
     const fortune = totals['fortune'] ?? 0;
-    const mult = lootMultiplierFromFortune(fortune);
+    // COMBAT_LOOT_MULTIPLIER_FLAT_BP: flat additive bonus on top of the fortune-derived multiplier.
+    const lootFlatBp = getCapabilityTotal(ctx, p.username, CAPABILITY_KEYS.COMBAT_LOOT_MULTIPLIER_FLAT_BP);
+    const mult = lootMultiplierFromFortune(fortune) + lootFlatBp / 10000;
     const wavesSurvived = p.waveAtDefeat > 0 ? Math.max(0, p.waveAtDefeat - 1) : Math.max(0, session.currentWave - 1);
     const scrap = BigInt(Math.floor((50 + 30 * wavesSurvived) * mult));
     const parts = BigInt(Math.floor(5 * Math.max(0, wavesSurvived - 2) * mult));
@@ -792,7 +797,7 @@ export const performAction = spacetimedb.reducer(
 
     // Resolve effect using snapshot stats.
     const totals = snapshotMap(ctx, sessionId, s.username);
-    const resolved = resolveActionForBattle(ctx, mySlot.actionId, totals);
+    const resolved = resolveActionForBattle(ctx, mySlot.actionId, totals, s.username);
 
     // Identify target set based on action.targeting.
     const targetingTag = actionDef.targeting.tag;
@@ -806,6 +811,18 @@ export const performAction = spacetimedb.reducer(
         throw new SenderError('Invalid zombie target');
       }
       zombieTargets.push({ id: targetId, row: z });
+      // COMBAT_DAMAGE_EXTRA_TARGET: each point adds one additional live zombie hit
+      // by single-target actions (deterministic selection — first N live, skip primary).
+      const extraTargetCount = getCapabilityTotal(ctx, s.username, CAPABILITY_KEYS.COMBAT_DAMAGE_EXTRA_TARGET);
+      if (extraTargetCount > 0) {
+        let added = 0;
+        for (const lz of liveZombiesOf(ctx, sessionId, session.currentWave)) {
+          if (lz.id === targetId) continue;
+          zombieTargets.push({ id: lz.id, row: lz });
+          added += 1;
+          if (added >= extraTargetCount) break;
+        }
+      }
     } else if (targetingTag === 'allEnemies') {
       for (const z of liveZombiesOf(ctx, sessionId, session.currentWave)) {
         zombieTargets.push({ id: z.id, row: z });
