@@ -27,7 +27,44 @@ import {
   notification,
   tutorialStepDefinition,
   playerTutorialProgress,
+  playerOfflineEarning,
 } from './tables_core';
+import { statDefinition, playerStatSource } from './stats_tables';
+import {
+  skillTreeDefinition,
+  skillPointPoolDefinition,
+  playerSkillPointBalance,
+  skillStatGrant,
+} from './skill_tree_tables';
+import {
+  actionDefinition,
+  actionStatScaling,
+  playerKnownAction,
+  playerActionLoadout,
+} from './action_tables';
+import {
+  defensiveBattleSession,
+  defensiveBattleParticipant,
+  defensiveBattleStatSnapshot,
+  defensiveBattleZombie,
+  defensiveBattleHandSlot,
+  defensiveBattleDeckCard,
+  defensiveBattleLog,
+  defensiveBattleVoteCancelJob,
+} from './battle_tables';
+import {
+  itemDefinition,
+  itemDefinitionAffix,
+  itemDefinitionRoll,
+  itemInstance,
+  itemInstanceAffix,
+  equipmentSlotDefinition,
+  craftingRecipe,
+  craftingRecipeCost,
+  armoryUpgradeCost,
+  playerArmoryState,
+  playerEquipment,
+} from './armory_tables';
 import {
   minigameSession,
   minigameMember,
@@ -45,6 +82,14 @@ import {
   cardDuelPlayer,
   cardDuelCardOnBoard,
 } from './minigames/tables';
+import {
+  playerEquippedClass,
+  classNodeEffect,
+  classCraftCost,
+  playerClassCraftProgress,
+  playerCapstoneChoice,
+  playerCapability,
+} from './class_tables';
 
 const spacetimedb = schema({
   account,
@@ -74,6 +119,36 @@ const spacetimedb = schema({
   notification,
   tutorialStepDefinition,
   playerTutorialProgress,
+  playerOfflineEarning,
+  statDefinition,
+  playerStatSource,
+  skillTreeDefinition,
+  skillPointPoolDefinition,
+  playerSkillPointBalance,
+  skillStatGrant,
+  actionDefinition,
+  actionStatScaling,
+  playerKnownAction,
+  playerActionLoadout,
+  defensiveBattleSession,
+  defensiveBattleParticipant,
+  defensiveBattleStatSnapshot,
+  defensiveBattleZombie,
+  defensiveBattleHandSlot,
+  defensiveBattleDeckCard,
+  defensiveBattleLog,
+  defensiveBattleVoteCancelJob,
+  itemDefinition,
+  itemDefinitionAffix,
+  itemDefinitionRoll,
+  itemInstance,
+  itemInstanceAffix,
+  equipmentSlotDefinition,
+  craftingRecipe,
+  craftingRecipeCost,
+  armoryUpgradeCost,
+  playerArmoryState,
+  playerEquipment,
   minigameSession,
   minigameMember,
   minigameInvite,
@@ -89,6 +164,12 @@ const spacetimedb = schema({
   cardDuelBoard,
   cardDuelPlayer,
   cardDuelCardOnBoard,
+  playerEquippedClass,
+  classNodeEffect,
+  classCraftCost,
+  playerClassCraftProgress,
+  playerCapstoneChoice,
+  playerCapability,
 });
 
 export default spacetimedb;

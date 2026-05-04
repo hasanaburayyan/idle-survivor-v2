@@ -7,6 +7,7 @@ export type TabKey =
   | 'travel'
   | 'shelter'
   | 'skill_tree'
+  | 'character'
   | 'social'
   | 'minigames'
   | 'chat';
@@ -17,12 +18,13 @@ interface Props {
 }
 
 const TABS: { key: TabKey; label: string }[] = [
-  { key: 'activities', label: 'Activities' },
+  { key: 'activities', label: 'Acts' },
   { key: 'travel', label: 'Travel' },
   { key: 'shelter', label: 'Shelter' },
-  { key: 'skill_tree', label: 'Skill Tree' },
+  { key: 'skill_tree', label: 'Skills' },
+  { key: 'character', label: 'Char' },
   { key: 'social', label: 'Social' },
-  { key: 'minigames', label: 'Minigames' },
+  { key: 'minigames', label: 'Games' },
   { key: 'chat', label: 'Chat' },
 ];
 
@@ -53,13 +55,7 @@ function TabButton({
   isActive: boolean;
   onPress: () => void;
 }) {
-  const spotlightKey =
-    tabKey === 'skill_tree'
-      ? 'tab:skill_tree'
-      : tabKey === 'travel'
-      ? 'tab:travel'
-      : '';
-  const spotlight = useSpotlightTarget(spotlightKey);
+  const spotlight = useSpotlightTarget(`tab:${tabKey}`);
   return (
     <View
       ref={spotlight.ref}

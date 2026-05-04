@@ -11,12 +11,16 @@ import ActivitiesTab from './ActivitiesTab';
 import TravelTab from './TravelTab';
 import ShelterTab from './ShelterTab';
 import SkillTreeTab from './SkillTreeTab';
+import CharacterTab from './CharacterTab';
 import SocialTab from './SocialTab';
 import ChatTab from './ChatTab';
 import MinigamesTab from './MinigamesTab';
 import MinigameModal from './minigames/MinigameModal';
+import DefensiveBattleLobby from './DefensiveBattleLobby';
+import DefensiveBattleScreen from './DefensiveBattleScreen';
 import { ScrapFlowProvider } from './ScrapFlow';
 import AutomationFeedback from './AutomationFeedback';
+import FortuneProcFeedback from './FortuneProcFeedback';
 import NotificationBell from './NotificationBell';
 import ResourceStrip from './ResourceStrip';
 import { SpotlightTargetProvider } from './SpotlightTargetRegistry';
@@ -47,6 +51,7 @@ function HomeScreenInner({ username }: HomeScreenProps) {
 
   const playerLevel = ps?.playerLevel ?? 0;
   const xp = ps?.xp ?? 0n;
+  const inBattle = ps?.location?.startsWith('defensive_battle:') ?? false;
   const nextLevelXp = xpToNextLevel(playerLevel);
   const xpPct =
     nextLevelXp === 0n ? 0 : Math.min(100, Number((xp * 100n) / nextLevelXp));
@@ -58,8 +63,15 @@ function HomeScreenInner({ username }: HomeScreenProps) {
   return (
     <SafeAreaView className="flex-1 bg-slate-950">
       <AutomationFeedback />
-      <View className="px-4 py-2 border-b border-slate-800 gap-2">
-        <View className="flex-row items-center justify-between gap-2">
+      <FortuneProcFeedback />
+      <View
+        className="px-4 py-2 border-b border-slate-800 gap-2"
+        style={{ zIndex: 50, elevation: 50 }}
+      >
+        <View
+          className="flex-row items-center justify-between gap-2"
+          style={{ zIndex: 10 }}
+        >
           <View className="flex-1">
             <ResourceStrip />
           </View>
@@ -131,6 +143,7 @@ function HomeScreenInner({ username }: HomeScreenProps) {
         {tab === 'travel' ? <TravelTab /> : null}
         {tab === 'shelter' ? <ShelterTab /> : null}
         {tab === 'skill_tree' ? <SkillTreeTab /> : null}
+        {tab === 'character' ? <CharacterTab /> : null}
         {tab === 'social' ? <SocialTab /> : null}
         {tab === 'minigames' ? <MinigamesTab /> : null}
         {tab === 'chat' ? <ChatTab username={username} /> : null}
@@ -140,6 +153,8 @@ function HomeScreenInner({ username }: HomeScreenProps) {
       <GroupPanel username={username} />
       <MinigameModal />
       <TutorialPopup />
+      <DefensiveBattleLobby username={username} />
+      {inBattle ? <DefensiveBattleScreen username={username} /> : null}
     </SafeAreaView>
   );
 }

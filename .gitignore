@@ -22,6 +22,13 @@ web-build/
 .idea/
 *.swp
 
+# Claude agent local memory (per-machine notes, never shared)
+.claude/agent-memory/
+**/.claude/agent-memory/
+
+# Obsidian per-workspace state
+.obsidian/workspace.json
+
 # Terraform — provider cache + state. Lock files (.terraform.lock.hcl) are
 # intentionally NOT ignored: they pin provider versions and should be committed.
 **/.terraform/

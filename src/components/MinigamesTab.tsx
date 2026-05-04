@@ -7,7 +7,12 @@ import { minigameRegistry, type MinigameKindTag } from './minigames/registry';
 
 export default function MinigamesTab() {
   const [members] = useTable(tables.myMinigameMember);
+  const [battleSessions] = useTable(tables.myDefensiveBattleSession);
+  const [playerStates] = useTable(tables.myPlayerState);
   const inMinigame = members.length > 0;
+  const inBattleLocation =
+    playerStates[0]?.location?.startsWith('defensive_battle:') ?? false;
+  const inBattle = battleSessions.length > 0 || inBattleLocation;
 
   return (
     <ScrollView className="flex-1 bg-slate-950">
@@ -32,6 +37,7 @@ export default function MinigamesTab() {
         ) : null}
 
         <View className="gap-3">
+          <DefensiveBattleCard inBattle={inBattle} inMinigame={inMinigame} />
           {Object.values(minigameRegistry).map(d => {
             if (!d) return null;
             return (
@@ -47,6 +53,67 @@ export default function MinigamesTab() {
         </View>
       </View>
     </ScrollView>
+  );
+}
+
+function DefensiveBattleCard({
+  inBattle,
+  inMinigame,
+}: {
+  inBattle: boolean;
+  inMinigame: boolean;
+}) {
+  const propose = useReducer(reducers.proposeDefensiveBattle);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const disabled = inBattle || inMinigame;
+
+  const onPress = async () => {
+    if (busy || disabled) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await propose();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to call battle');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const buttonLabel = inBattle
+    ? 'In battle…'
+    : inMinigame
+      ? 'In minigame…'
+      : busy
+        ? 'Calling…'
+        : '⚔ Call Defensive Battle';
+
+  return (
+    <View className="rounded-2xl bg-slate-900 border border-slate-800 px-4 py-4 gap-3">
+      <View>
+        <Text className="text-base font-semibold text-slate-100">
+          ⚔ Defensive Battle
+        </Text>
+        <Text className="text-xs text-slate-400 mt-1">
+          Hold off waves of zombies with your party. Earn loot for each wave
+          survived.
+        </Text>
+      </View>
+      <SafePressable
+        onPress={onPress}
+        disabled={busy || disabled}
+        className={`rounded-lg py-3 items-center ${
+          busy || disabled ? 'bg-rose-900' : 'bg-rose-600'
+        }`}
+      >
+        <Text className="text-sm font-medium text-slate-50">{buttonLabel}</Text>
+      </SafePressable>
+      {error ? (
+        <Text className="text-[11px] text-rose-300">{error}</Text>
+      ) : null}
+    </View>
   );
 }
 

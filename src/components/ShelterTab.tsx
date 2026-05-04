@@ -1,8 +1,12 @@
+import { useState } from 'react';
 import { ScrollView, Text, View } from 'react-native';
 import { useTable } from 'spacetimedb/react';
 import { tables } from '../module_bindings';
 import { ActivityGrid, type ActivityDef } from './ActivityGrid';
 import StructureCard from './StructureCard';
+import StructureDetailScreen from './StructureDetailScreen';
+import ArmoryScreen from './ArmoryScreen';
+import ClassCraftingScreen from './ClassCraftingScreen';
 
 const SHELTER_LOCATION_KEY = 'the_shelter';
 
@@ -11,6 +15,9 @@ export default function ShelterTab() {
   const [activityState] = useTable(tables.myActivityState);
   const [structures] = useTable(tables.myStructures);
   const [structureDefs] = useTable(tables.structureDefinition);
+  const [selectedStructureId, setSelectedStructureId] = useState<string | null>(
+    null
+  );
 
   const shelterBuilt =
     (activityState.find(a => a.activityId === 'build_shelter')?.timesUsed ??
@@ -42,6 +49,28 @@ export default function ShelterTab() {
     .filter(v => v.def.locationKey === SHELTER_LOCATION_KEY)
     .sort((a, b) => a.def.sortOrder - b.def.sortOrder);
 
+  if (selectedStructureId) {
+    const selected = visibleStructures.find(
+      s => s.def.structureId === selectedStructureId
+    );
+    if (selected) {
+      if (selected.def.structureId === 'armory') {
+        return <ArmoryScreen onBack={() => setSelectedStructureId(null)} />;
+      }
+      if (selected.def.structureId === 'class_crafting') {
+        return <ClassCraftingScreen onBack={() => setSelectedStructureId(null)} />;
+      }
+      return (
+        <StructureDetailScreen
+          def={selected.def}
+          state={selected.state}
+          onBack={() => setSelectedStructureId(null)}
+        />
+      );
+    }
+    // Selected structure no longer visible (e.g. data desync) — fall through to list.
+  }
+
   return (
     <ScrollView contentContainerStyle={{ padding: 16, gap: 12 }}>
       <ActivityGrid activities={sortedActivities} activityState={activityState} />
@@ -50,6 +79,7 @@ export default function ShelterTab() {
           key={s.state.id.toString()}
           state={s.state}
           def={s.def}
+          onSelect={() => setSelectedStructureId(s.def.structureId)}
         />
       ))}
     </ScrollView>

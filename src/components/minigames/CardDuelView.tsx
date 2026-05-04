@@ -1,8 +1,16 @@
-import { useState } from 'react';
-import { ScrollView, Text, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { Animated, ScrollView, Text, View } from 'react-native';
 import SafePressable from '../SafePressable';
 import { useReducer, useTable } from 'spacetimedb/react';
 import { reducers, tables } from '../../module_bindings';
+import {
+  FlashOverlay,
+  LaggingHpBar,
+  Wiggle,
+  COLOR_DAMAGE,
+  COLOR_PLAY,
+  SHRINK_OUT_MS,
+} from '../feedback';
 
 interface Props {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -15,6 +23,10 @@ interface CardListPayload {
 
 const NUM_SLOTS = 5;
 
+// Mirrors STARTING_HEALTH in spacetimedb/src/minigames/cardDuel.ts.
+// cardDuelPlayer has no maxHp column; if backend STARTING_HEALTH changes, update this too.
+const PLAYER_MAX_HP = 20;
+
 function decodeCardList(data: string): string[] {
   if (!data) return [];
   try {
@@ -23,6 +35,16 @@ function decodeCardList(data: string): string[] {
   } catch {
     return [];
   }
+}
+
+// Shape of a "ghost slot" shown while a removed card shrinks out.
+interface RemovingCard {
+  id: bigint;
+  slot: number;
+  ownerSeat: number;
+  cardDefId: string;
+  attack: number;
+  health: number;
 }
 
 export default function CardDuelView({ session }: Props) {
@@ -39,6 +61,8 @@ export default function CardDuelView({ session }: Props) {
   const sessionCards = boardCards.filter(c => c.sessionId === session.id);
   const me = sessionPlayers.find(p => p.username === myUsername);
   const opponent = sessionPlayers.find(p => p.username !== myUsername);
+  const myCards = sessionCards.filter(c => c.ownerSeat === me?.seat);
+  const enemyCards = sessionCards.filter(c => c.ownerSeat === opponent?.seat);
 
   const handRow = privateState.find(
     p => p.sessionId === session.id && p.slot === 0 && p.username === myUsername,
@@ -57,9 +81,145 @@ export default function CardDuelView({ session }: Props) {
   const [selectedAttackerId, setSelectedAttackerId] = useState<bigint | null>(null);
   const [busy, setBusy] = useState(false);
 
+  // -------------------------------------------------------------------------
+  // Animation state
+  // -------------------------------------------------------------------------
+
+  // Per-card slot flash triggers (damage): keyed by card id string.
+  const [cardFlashTriggers, setCardFlashTriggers] = useState<Map<string, number>>(new Map());
+  // Per-player face-damage flash: keyed by seat number.
+  const [playerFlashTriggers, setPlayerFlashTriggers] = useState<Map<number, number>>(new Map());
+  // Opponent nameplate: wiggle + green flash when they play a card.
+  const [opponentWiggleTrigger, setOpponentWiggleTrigger] = useState(0);
+  const [opponentPlayFlashTrigger, setOpponentPlayFlashTrigger] = useState(0);
+  // Ghost cards being shrunk out after removal.
+  const [removingCards, setRemovingCards] = useState<Map<string, RemovingCard>>(new Map());
+
+  // -------------------------------------------------------------------------
+  // Diff-tracking refs — state snapshots from the previous render
+  // -------------------------------------------------------------------------
+  const prevCardHp = useRef(new Map<string, number>());
+  const prevCardIds = useRef(new Map<number, Set<string>>()); // seat → set of id strings
+  const prevPlayerHp = useRef(new Map<number, number>());    // seat → hp
+  const prevTurnNumber = useRef<number>(-1); // -1 = uninitialized; suppresses first-render animation
+  const prevEnemyCardCount = useRef<number>(0);
+
+  // Last-known card data: seeded from every live render so removals have
+  // enough info to build a ghost slot.
+  const lastKnownCards = useRef(new Map<string, RemovingCard>());
+  useEffect(() => {
+    for (const c of sessionCards) {
+      lastKnownCards.current.set(c.id.toString(), {
+        id: c.id,
+        slot: c.slot,
+        ownerSeat: c.ownerSeat,
+        cardDefId: c.cardDefId,
+        attack: c.attack,
+        health: c.health,
+      });
+    }
+  }, [sessionCards]);
+
+  // -------------------------------------------------------------------------
+  // Main diff-tracking effect — fires whenever board state changes
+  // -------------------------------------------------------------------------
+  useEffect(() => {
+    if (!board || !me || !opponent) return;
+
+    const currentTurn = board.turnNumber;
+    const isInitialMount = prevTurnNumber.current === -1;
+
+    if (isInitialMount) {
+      // Seed refs without triggering any animation. This is the "prime on mount"
+      // pattern that prevents initial subscription data from burst-firing animations.
+      prevTurnNumber.current = currentTurn;
+      prevEnemyCardCount.current = enemyCards.length;
+      for (const c of sessionCards) {
+        prevCardHp.current.set(c.id.toString(), c.health);
+      }
+      for (const p of sessionPlayers) {
+        prevPlayerHp.current.set(p.seat, p.health);
+      }
+      prevCardIds.current.set(me.seat, new Set(myCards.map(c => c.id.toString())));
+      prevCardIds.current.set(opponent.seat, new Set(enemyCards.map(c => c.id.toString())));
+      return;
+    }
+
+    const newCardFlash = new Map(cardFlashTriggers);
+    const newPlayerFlash = new Map(playerFlashTriggers);
+    let bumpOpponentWiggle = false;
+
+    // --- Card HP drops → per-slot red border flash ---
+    for (const c of sessionCards) {
+      const key = c.id.toString();
+      const prev = prevCardHp.current.get(key);
+      if (prev !== undefined && c.health < prev) {
+        newCardFlash.set(key, (newCardFlash.get(key) ?? 0) + 1);
+      }
+      prevCardHp.current.set(key, c.health);
+    }
+
+    // --- Player HP drops → face-damage tint flash ---
+    for (const p of sessionPlayers) {
+      const prev = prevPlayerHp.current.get(p.seat);
+      if (prev !== undefined && p.health < prev) {
+        newPlayerFlash.set(p.seat, (newPlayerFlash.get(p.seat) ?? 0) + 1);
+      }
+      prevPlayerHp.current.set(p.seat, p.health);
+    }
+
+    // --- Card removal → register ghost slot for shrink-out animation ---
+    const prevEnemyIds = prevCardIds.current.get(opponent.seat) ?? new Set<string>();
+    const currentEnemyIds = new Set(enemyCards.map(c => c.id.toString()));
+    const prevMyIds = prevCardIds.current.get(me.seat) ?? new Set<string>();
+    const currentMyIds = new Set(myCards.map(c => c.id.toString()));
+
+    const disappeared: Array<{ id: string; seat: number }> = [
+      ...[...prevEnemyIds].filter(id => !currentEnemyIds.has(id)).map(id => ({ id, seat: opponent.seat })),
+      ...[...prevMyIds].filter(id => !currentMyIds.has(id)).map(id => ({ id, seat: me.seat })),
+    ];
+
+    if (disappeared.length > 0) {
+      setRemovingCards(prev => {
+        const next = new Map(prev);
+        for (const { id, seat } of disappeared) {
+          if (!next.has(id)) {
+            // Use last-known data if available; fall back to a minimal ghost.
+            const known = lastKnownCards.current.get(id);
+            next.set(id, known ?? { id: BigInt(id), slot: 0, ownerSeat: seat, cardDefId: '', attack: 0, health: 0 });
+          }
+        }
+        return next;
+      });
+    }
+
+    prevCardIds.current.set(opponent.seat, currentEnemyIds);
+    prevCardIds.current.set(me.seat, currentMyIds);
+
+    // --- Opponent plays a card: enemy count increases → nameplate wiggle + green flash ---
+    // The initial deal is already suppressed by the isInitialMount early-return above;
+    // turn-number gating would delay the signal until cdEndTurn (up to a full turn late).
+    if (enemyCards.length > prevEnemyCardCount.current) {
+      bumpOpponentWiggle = true;
+    }
+    prevTurnNumber.current = currentTurn;
+    prevEnemyCardCount.current = enemyCards.length;
+
+    // Batch state updates to avoid multiple re-renders.
+    const cardFlashChanged = [...newCardFlash.entries()].some(([k, v]) => cardFlashTriggers.get(k) !== v)
+      || newCardFlash.size !== cardFlashTriggers.size;
+    const playerFlashChanged = [...newPlayerFlash.entries()].some(([k, v]) => playerFlashTriggers.get(k) !== v);
+
+    if (cardFlashChanged) setCardFlashTriggers(newCardFlash);
+    if (playerFlashChanged) setPlayerFlashTriggers(newPlayerFlash);
+    if (bumpOpponentWiggle) {
+      setOpponentWiggleTrigger(n => n + 1);
+      setOpponentPlayFlashTrigger(n => n + 1);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionCards, sessionPlayers, board]);
+
   const myTurn = me !== undefined && board !== undefined && board.activeSeat === me.seat;
-  const myCards = sessionCards.filter(c => c.ownerSeat === me?.seat);
-  const enemyCards = sessionCards.filter(c => c.ownerSeat === opponent?.seat);
 
   const cardName = (defId: string) => defs.find(d => d.cardDefId === defId)?.name ?? defId;
   const cardCost = (defId: string) => defs.find(d => d.cardDefId === defId)?.cost ?? 0;
@@ -118,6 +278,8 @@ export default function CardDuelView({ session }: Props) {
   }
 
   const slots = Array.from({ length: NUM_SLOTS });
+  const myFaceFlashTrigger = playerFlashTriggers.get(me.seat) ?? 0;
+  const opponentFaceFlashTrigger = playerFlashTriggers.get(opponent.seat) ?? 0;
 
   return (
     <View className="flex-1 px-3 pt-1 pb-2 gap-1">
@@ -135,26 +297,60 @@ export default function CardDuelView({ session }: Props) {
         </Text>
       </View>
 
-      {/* Opponent header row */}
-      <View className="flex-row items-center justify-between px-1">
-        <Text className="text-xs text-slate-300" numberOfLines={1}>
-          {opponent.username}
-        </Text>
-        <Text className="text-xs text-rose-400">❤ {opponent.health}</Text>
-      </View>
+      {/* ---------------------------------------------------------------- */}
+      {/* Opponent header row — wiggle + green border flash on card play   */}
+      {/* ---------------------------------------------------------------- */}
+      <Wiggle trigger={opponentWiggleTrigger} axis="x" amplitude={5}>
+        <View
+          className="flex-row items-center justify-between rounded-md px-2 py-1"
+          style={{ position: 'relative' }}
+        >
+          <Text className="text-xs text-slate-300" numberOfLines={1}>
+            {opponent.username}
+          </Text>
+          {/* Opponent face HP as lagging bar + numeric */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <View style={{ width: 64 }}>
+              <LaggingHpBar currentHp={opponent.health} maxHp={PLAYER_MAX_HP} height={6} />
+            </View>
+            <Text className="text-xs text-rose-400">{opponent.health} HP</Text>
+          </View>
+          {/* "Played a card" green border flash */}
+          <FlashOverlay
+            trigger={opponentPlayFlashTrigger}
+            color={COLOR_PLAY}
+            fillMode="border"
+            intensity={0.85}
+          />
+          {/* Face-damage red tint flash */}
+          <FlashOverlay
+            trigger={opponentFaceFlashTrigger}
+            color={COLOR_DAMAGE}
+            fillMode="tint"
+            intensity={0.35}
+          />
+        </View>
+      </Wiggle>
 
-      {/* Opponent board */}
+      {/* ---------------------------------------------------------------- */}
+      {/* Opponent board                                                    */}
+      {/* ---------------------------------------------------------------- */}
       <View className="flex-row gap-1 h-20">
         {slots.map((_, slot) => {
           const c = enemyCards.find(card => card.slot === slot);
-          const isAttackable =
-            myTurn && selectedAttackerId !== null && c !== undefined;
+          const ghost = [...removingCards.values()].find(
+            r => r.ownerSeat === opponent.seat && r.slot === slot
+          );
+          const cardKey = c?.id.toString() ?? null;
+          const slotFlashTrigger = cardKey ? (cardFlashTriggers.get(cardKey) ?? 0) : 0;
+          const isAttackable = myTurn && selectedAttackerId !== null && c !== undefined;
           return (
             <SafePressable
               key={slot}
               onPress={() => c && attackTarget(c.id)}
               disabled={!isAttackable}
-              className={`flex-1 rounded-md items-center justify-center px-1 ${
+              style={{ flex: 1, position: 'relative' }}
+              className={`rounded-md items-center justify-center px-1 ${
                 c
                   ? isAttackable
                     ? 'bg-rose-700 border border-rose-400'
@@ -171,7 +367,27 @@ export default function CardDuelView({ session }: Props) {
                     {c.attack}/{c.health}
                   </Text>
                 </View>
+              ) : ghost ? (
+                <ShrinkOutCard
+                  name={cardName(ghost.cardDefId)}
+                  attack={ghost.attack}
+                  health={ghost.health}
+                  onDone={() =>
+                    setRemovingCards(prev => {
+                      const next = new Map(prev);
+                      next.delete(ghost.id.toString());
+                      return next;
+                    })
+                  }
+                />
               ) : null}
+              {/* Per-slot damage border flash — pointerEvents none is guaranteed by FlashOverlay */}
+              <FlashOverlay
+                trigger={slotFlashTrigger}
+                color={COLOR_DAMAGE}
+                fillMode="border"
+                intensity={0.9}
+              />
             </SafePressable>
           );
         })}
@@ -189,10 +405,17 @@ export default function CardDuelView({ session }: Props) {
         </SafePressable>
       ) : null}
 
-      {/* My board */}
+      {/* ---------------------------------------------------------------- */}
+      {/* My board                                                          */}
+      {/* ---------------------------------------------------------------- */}
       <View className="flex-row gap-1 h-20">
         {slots.map((_, slot) => {
           const c = myCards.find(card => card.slot === slot);
+          const ghost = [...removingCards.values()].find(
+            r => r.ownerSeat === me.seat && r.slot === slot
+          );
+          const cardKey = c?.id.toString() ?? null;
+          const slotFlashTrigger = cardKey ? (cardFlashTriggers.get(cardKey) ?? 0) : 0;
           const isPlayTarget = myTurn && selectedHandIndex !== null && !c;
           return (
             <SafePressable
@@ -202,7 +425,8 @@ export default function CardDuelView({ session }: Props) {
                 else if (c) tapMyCard(c.id);
               }}
               disabled={!myTurn || (!c && selectedHandIndex === null)}
-              className={`flex-1 rounded-md items-center justify-center px-1 ${
+              style={{ flex: 1, position: 'relative' }}
+              className={`rounded-md items-center justify-center px-1 ${
                 c
                   ? selectedAttackerId === c.id
                     ? 'bg-amber-600 border border-amber-300'
@@ -221,18 +445,47 @@ export default function CardDuelView({ session }: Props) {
                     {c.attack}/{c.health}
                   </Text>
                 </View>
+              ) : ghost ? (
+                <ShrinkOutCard
+                  name={cardName(ghost.cardDefId)}
+                  attack={ghost.attack}
+                  health={ghost.health}
+                  onDone={() =>
+                    setRemovingCards(prev => {
+                      const next = new Map(prev);
+                      next.delete(ghost.id.toString());
+                      return next;
+                    })
+                  }
+                />
               ) : null}
+              <FlashOverlay
+                trigger={slotFlashTrigger}
+                color={COLOR_DAMAGE}
+                fillMode="border"
+                intensity={0.9}
+              />
             </SafePressable>
           );
         })}
       </View>
 
-      {/* My status bar */}
-      <View className="flex-row items-center justify-between gap-2 mt-1 px-1">
+      {/* ---------------------------------------------------------------- */}
+      {/* My status bar — lagging HP bar + face-damage flash               */}
+      {/* ---------------------------------------------------------------- */}
+      <View
+        className="flex-row items-center justify-between gap-2 mt-1 px-1"
+        style={{ position: 'relative' }}
+      >
         <Text className="text-xs text-slate-100" numberOfLines={1}>
           {me.username}
         </Text>
-        <Text className="text-xs text-emerald-400">❤ {me.health}</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
+          <View style={{ flex: 1 }}>
+            <LaggingHpBar currentHp={me.health} maxHp={PLAYER_MAX_HP} height={6} />
+          </View>
+          <Text className="text-xs text-emerald-400">{me.health} HP</Text>
+        </View>
         <Text className="text-xs text-sky-400">
           ✨ {me.manaCurrent}/{me.manaMax}
         </Text>
@@ -252,6 +505,13 @@ export default function CardDuelView({ session }: Props) {
             End turn
           </Text>
         </SafePressable>
+        {/* Face-damage red tint flash on my status row */}
+        <FlashOverlay
+          trigger={myFaceFlashTrigger}
+          color={COLOR_DAMAGE}
+          fillMode="tint"
+          intensity={0.35}
+        />
       </View>
 
       {/* Hand — single row, horizontal scroll */}
@@ -302,5 +562,53 @@ export default function CardDuelView({ session }: Props) {
         </ScrollView>
       </View>
     </View>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// ShrinkOutCard — ghost card that scales and fades out on removal
+// ---------------------------------------------------------------------------
+
+function ShrinkOutCard({
+  name,
+  attack,
+  health,
+  onDone,
+}: {
+  name: string;
+  attack: number;
+  health: number;
+  onDone: () => void;
+}) {
+  const scale = useRef(new Animated.Value(1)).current;
+  const opacity = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(scale, {
+        toValue: 0,
+        duration: SHRINK_OUT_MS,
+        useNativeDriver: true,
+      }),
+      Animated.timing(opacity, {
+        toValue: 0,
+        duration: SHRINK_OUT_MS,
+        useNativeDriver: true,
+      }),
+    ]).start(() => onDone());
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return (
+    <Animated.View style={{ transform: [{ scale }], opacity }} className="items-center">
+      {name ? (
+        <Text className="text-[9px] text-slate-300 text-center" numberOfLines={2}>
+          {name}
+        </Text>
+      ) : null}
+      <Text className="text-[11px] font-bold text-slate-400">
+        {attack}/{health}
+      </Text>
+    </Animated.View>
   );
 }

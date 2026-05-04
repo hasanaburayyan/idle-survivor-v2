@@ -51,6 +51,18 @@ export const playerState = table(
     skillPoints: t.u32(),
     location: t.string(),
     updatedAt: t.timestamp(),
+    // Combo state for Striker class (Phase 2 consumption; schema ships now).
+    // lastClickAt as u64 micros-since-epoch (0 = never clicked) so the column
+    // has a wire-level default for migration. comboBp accumulates basis points.
+    comboLastClickAtMicros: t.u64().default(0n),
+    comboBp: t.u32().default(0),
+    // Striker momentum capstone reads this — separate from comboBp because
+    // comboBp caps at 5000 (10 clicks) while momentum needs an uncapped
+    // count to test the 50-click threshold. Resets to 0 when the combo
+    // window expires; increments by 1 each consecutive click within window.
+    comboClickCount: t.u32().default(0),
+    // Monotonic action counter for fortune proc PRNG seeding.
+    actionCount: t.u64().default(0n),
   }
 );
 
@@ -170,7 +182,17 @@ export const playerActivity = table(
 );
 
 export const skillDefinition = table(
-  { name: 'skill_definition', public: true },
+  {
+    name: 'skill_definition',
+    public: true,
+    indexes: [
+      {
+        accessor: 'skill_definition_tree',
+        algorithm: 'btree',
+        columns: ['treeId'],
+      },
+    ],
+  },
   {
     skillId: t.string().primaryKey(),
     name: t.string(),
@@ -183,6 +205,17 @@ export const skillDefinition = table(
     positionX: t.i32(),
     positionY: t.i32(),
     sortOrder: t.u32(),
+    treeId: t.string(),
+    // Class Skill Trees additions (all with wire-level defaults so old rows migrate cleanly):
+    // Groups mutually-exclusive capstone choices. '' = not a capstone node.
+    capstoneBranchId: t.string().default(''),
+    // When true, the node has no level cap (upgradeSkill skips the maxLevel check).
+    // Class tree completion ignores these nodes.
+    infiniteScaling: t.bool().default(false),
+    // When non-empty, the stat gate replaces the prerequisitePlayerLevel check.
+    // upgradeSkill compares getStatTotals(username)[prerequisiteStatId] >= prerequisiteStatValue.
+    prerequisiteStatId: t.string().default(''),
+    prerequisiteStatValue: t.u32().default(0),
   }
 );
 
@@ -494,6 +527,7 @@ export const NotificationKind = t.enum('NotificationKind', {
   groupInvite: t.unit(),
   guildInvite: t.unit(),
   minigameInvite: t.unit(),
+  defensiveBattleVote: t.unit(),
   system: t.unit(),
 });
 
@@ -543,5 +577,28 @@ export const chatMessage = table(
     authorUsername: t.string(),
     body: t.string(),
     createdAt: t.timestamp(),
+  }
+);
+
+// One row per (player, resource) accumulating bonus yield earned by offline-
+// triggered class capabilities (e.g. Brute's forge_heart). Rows are deleted on
+// login after surfacing as a single notification. Source key is `${username}
+// :${resourceId}` so updates use a single primary-key lookup.
+export const playerOfflineEarning = table(
+  {
+    name: 'player_offline_earning',
+    indexes: [
+      {
+        accessor: 'player_offline_earning_username',
+        algorithm: 'btree',
+        columns: ['username'],
+      },
+    ],
+  },
+  {
+    sourceKey: t.string().primaryKey(),
+    username: t.string(),
+    resourceId: t.string(),
+    amount: t.u64(),
   }
 );
