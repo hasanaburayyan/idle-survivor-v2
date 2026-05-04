@@ -1001,10 +1001,14 @@ export const performAction = spacetimedb.reducer(
             CAPABILITY_KEYS.COMBAT_DAMAGE_TAKEN_WARD_BP
           );
           if (wardChanceBp > 0) {
+            // Include participant id + currentWave so two same-microsecond
+            // resolutions for the same player can't collide on the proc roll.
             const seed = buildSeed([
               ctx.timestamp.microsSinceUnixEpoch,
               s.username,
               sessionId,
+              me.id,
+              BigInt(updatedSession.currentWave),
               'steel_frame',
             ]);
             if (new Rng(seed).uniform() < wardChanceBp / 10000) {
