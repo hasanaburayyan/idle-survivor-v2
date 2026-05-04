@@ -5,6 +5,7 @@ import { insertNotification, deleteNotificationByRef } from './notifications';
 import { getStatTotals } from './stats';
 import { resolveActionForBattle } from './actions';
 import { CAPABILITY_KEYS, getCapabilityTotal } from './class';
+import { Rng, buildSeed } from './rng';
 import {
   defensiveBattleSession,
   defensiveBattleParticipant,
@@ -973,6 +974,7 @@ export const performAction = spacetimedb.reducer(
     let me2 = ctx.db.defensiveBattleParticipant.id.find(me.id);
     if (me2 !== null) {
       let damage = tickAmount;
+      let steelFrameProc = false;
       if (me2.wardCount > 0) {
         ctx.db.defensiveBattleParticipant.id.update({ ...me2, wardCount: me2.wardCount - 1 });
         damage = 0;
@@ -990,12 +992,39 @@ export const performAction = spacetimedb.reducer(
             const refreshed = ctx.db.defensiveBattleSession.sessionId.find(sessionId);
             if (refreshed !== null) updatedSession = refreshed;
           }
+        } else if (damage > 0) {
+          // Iron Will / Steel Frame — surviving an unwarded hit can grant the
+          // next-hit ward. Roll only when actual HP loss happened.
+          const wardChanceBp = getCapabilityTotal(
+            ctx,
+            s.username,
+            CAPABILITY_KEYS.COMBAT_DAMAGE_TAKEN_WARD_BP
+          );
+          if (wardChanceBp > 0) {
+            const seed = buildSeed([
+              ctx.timestamp.microsSinceUnixEpoch,
+              s.username,
+              sessionId,
+              'steel_frame',
+            ]);
+            if (new Rng(seed).uniform() < wardChanceBp / 10000) {
+              const refreshed = ctx.db.defensiveBattleParticipant.id.find(me.id);
+              if (refreshed !== null) {
+                ctx.db.defensiveBattleParticipant.id.update({
+                  ...refreshed,
+                  wardCount: refreshed.wardCount + 1,
+                });
+                steelFrameProc = true;
+              }
+            }
+          }
         }
       }
       logEvent(ctx, sessionId, s.username, 'damageDealt', {
         source: 'self',
         actionId: mySlot.actionId,
         amount: damage,
+        steelFrameProc,
       });
     }
 

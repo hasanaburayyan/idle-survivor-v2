@@ -27,6 +27,7 @@ import {
   notification,
   tutorialStepDefinition,
   playerTutorialProgress,
+  playerOfflineEarning,
 } from './tables_core';
 import { statDefinition, playerStatSource } from './stats_tables';
 import {
@@ -118,6 +119,7 @@ const spacetimedb = schema({
   notification,
   tutorialStepDefinition,
   playerTutorialProgress,
+  playerOfflineEarning,
   statDefinition,
   playerStatSource,
   skillTreeDefinition,

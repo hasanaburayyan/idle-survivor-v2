@@ -56,6 +56,11 @@ export const playerState = table(
     // has a wire-level default for migration. comboBp accumulates basis points.
     comboLastClickAtMicros: t.u64().default(0n),
     comboBp: t.u32().default(0),
+    // Striker momentum capstone reads this — separate from comboBp because
+    // comboBp caps at 5000 (10 clicks) while momentum needs an uncapped
+    // count to test the 50-click threshold. Resets to 0 when the combo
+    // window expires; increments by 1 each consecutive click within window.
+    comboClickCount: t.u32().default(0),
     // Monotonic action counter for fortune proc PRNG seeding.
     actionCount: t.u64().default(0n),
   }
@@ -572,5 +577,28 @@ export const chatMessage = table(
     authorUsername: t.string(),
     body: t.string(),
     createdAt: t.timestamp(),
+  }
+);
+
+// One row per (player, resource) accumulating bonus yield earned by offline-
+// triggered class capabilities (e.g. Brute's forge_heart). Rows are deleted on
+// login after surfacing as a single notification. Source key is `${username}
+// :${resourceId}` so updates use a single primary-key lookup.
+export const playerOfflineEarning = table(
+  {
+    name: 'player_offline_earning',
+    indexes: [
+      {
+        accessor: 'player_offline_earning_username',
+        algorithm: 'btree',
+        columns: ['username'],
+      },
+    ],
+  },
+  {
+    sourceKey: t.string().primaryKey(),
+    username: t.string(),
+    resourceId: t.string(),
+    amount: t.u64(),
   }
 );

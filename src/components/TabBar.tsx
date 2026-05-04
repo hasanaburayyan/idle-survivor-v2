@@ -55,13 +55,7 @@ function TabButton({
   isActive: boolean;
   onPress: () => void;
 }) {
-  const spotlightKey =
-    tabKey === 'skill_tree'
-      ? 'tab:skill_tree'
-      : tabKey === 'travel'
-      ? 'tab:travel'
-      : '';
-  const spotlight = useSpotlightTarget(spotlightKey);
+  const spotlight = useSpotlightTarget(`tab:${tabKey}`);
   return (
     <View
       ref={spotlight.ref}

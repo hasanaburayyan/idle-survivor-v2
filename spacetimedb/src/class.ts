@@ -18,8 +18,7 @@ import {
 
 export const CAPABILITY_KEYS = {
   AUTOMATION_SLOT: 'automation_slot',
-  AUTOMATION_COST_TOLERANT: 'automation_cost_tolerant',
-  AUTOMATION_FREE_RUNS: 'automation_free_runs',
+  AUTOMATION_PHALANX_PCT_BP: 'automation_phalanx_pct_bp',
   AUTOMATION_YIELD_PCT_BP: 'automation_yield_pct_bp',
   OFFLINE_AUTOMATION_MULTIPLIER_BP: 'offline_automation_multiplier_bp',
   MANUAL_CLICK_YIELD_PCT_BP: 'manual_click_yield_pct_bp',
@@ -41,7 +40,7 @@ export const CAPABILITY_KEYS = {
   COMBAT_HAND_SIZE_BONUS: 'combat_hand_size_bonus',
   COMBAT_DAMAGE_EXTRA_TARGET: 'combat_damage_extra_target',
   COMBAT_POWER_DAMAGE_MULTIPLIER_BP: 'combat_power_damage_multiplier_bp',
-  COMBAT_CLICK_GRANTS_WARD: 'combat_click_grants_ward',
+  COMBAT_DAMAGE_TAKEN_WARD_BP: 'combat_damage_taken_ward_bp',
   COMBAT_LOOT_MULTIPLIER_FLAT_BP: 'combat_loot_multiplier_flat_bp',
   COMBO_FREE_CRAFT_THRESHOLD: 'combo_free_craft_threshold',
   VEIN_DROP_CHANCE_BP: 'vein_drop_chance_bp',
@@ -1124,8 +1123,8 @@ const BRUTE_NODE_SEEDS: ClassNodeSeed[] = [
   },
   {
     skillId: 'steady_hands',
-    name: 'Steady Hands',
-    description: 'Automation slots no longer abort on cost failure — they simply skip the tick.',
+    name: 'Phalanx Drill',
+    description: 'Each other active automation slot grants +5% yield to all your automation ticks. Solo slots do nothing — invest in Parallel Frame for the bonus to bite.',
     maxLevel: 1,
     prerequisiteSkillId: 'parallel_frame_1',
     prerequisiteLevel: 1,
@@ -1211,7 +1210,7 @@ const BRUTE_NODE_SEEDS: ClassNodeSeed[] = [
   {
     skillId: 'iron_will',
     name: 'Iron Will',
-    description: 'Manual clicks during a Defensive Battle grant ward charges.',
+    description: 'When you take damage in a Defensive Battle, 25% chance to gain a ward charge that absorbs the next incoming hit.',
     maxLevel: 1,
     prerequisiteSkillId: '',
     prerequisiteLevel: 0,
@@ -1228,7 +1227,7 @@ const BRUTE_NODE_SEEDS: ClassNodeSeed[] = [
   {
     skillId: 'bulwark',
     name: 'Bulwark',
-    description: 'Automation ticks succeed even when costs aren\'t met.',
+    description: 'Phalanx Drill effect deepens: each other active automation slot grants an additional +20% yield (total +25% per sibling slot with both nodes). At max slots, every tick gets +75% from synergy alone.',
     maxLevel: 1,
     prerequisiteSkillId: '',
     prerequisiteLevel: 0,
@@ -1248,12 +1247,12 @@ const BRUTE_EFFECT_SEEDS: ClassNodeEffectSeed[] = [
   { skillId: 'parallel_frame_1', effectKey: CAPABILITY_KEYS.AUTOMATION_SLOT, amountPerLevel: 1 },
   { skillId: 'parallel_frame_2', effectKey: CAPABILITY_KEYS.AUTOMATION_SLOT, amountPerLevel: 1 },
   { skillId: 'parallel_frame_3', effectKey: CAPABILITY_KEYS.AUTOMATION_SLOT, amountPerLevel: 1 },
-  { skillId: 'steady_hands', effectKey: CAPABILITY_KEYS.AUTOMATION_COST_TOLERANT, amountPerLevel: 1 },
+  { skillId: 'steady_hands', effectKey: CAPABILITY_KEYS.AUTOMATION_PHALANX_PCT_BP, amountPerLevel: 500 },
   { skillId: 'heavy_frame', effectKey: CAPABILITY_KEYS.MANUAL_CLICK_TICK_COUNT, amountPerLevel: 1 },
   { skillId: 'endurance_infinite', effectKey: CAPABILITY_KEYS.AUTOMATION_YIELD_PCT_BP, amountPerLevel: 100 },
   { skillId: 'forge_heart', effectKey: CAPABILITY_KEYS.OFFLINE_AUTOMATION_MULTIPLIER_BP, amountPerLevel: 5000 },
-  { skillId: 'iron_will', effectKey: CAPABILITY_KEYS.COMBAT_CLICK_GRANTS_WARD, amountPerLevel: 1 },
-  { skillId: 'bulwark', effectKey: CAPABILITY_KEYS.AUTOMATION_FREE_RUNS, amountPerLevel: 1 },
+  { skillId: 'iron_will', effectKey: CAPABILITY_KEYS.COMBAT_DAMAGE_TAKEN_WARD_BP, amountPerLevel: 2500 },
+  { skillId: 'bulwark', effectKey: CAPABILITY_KEYS.AUTOMATION_PHALANX_PCT_BP, amountPerLevel: 2000 },
 ];
 
 // Generalist tree nodes (treeId: 'generalist')

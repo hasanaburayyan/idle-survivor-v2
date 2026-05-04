@@ -1,3 +1,7 @@
+## Status
+**Implemented (Groups):** group creation, username-based invites, the bottom-of-screen group panel showing members (`GroupPanel.tsx` / `GroupLobby.tsx`), `groupContributionEvent` driving the green/blue/gold/red color states on member tags, and the persistent color flash. Tables: `group`, `groupMember`, `groupInvitation`, `groupContributionEvent`.
+**Pending:** shelter visitation (visiting another player's shelter as a session) and guild halls — neither has a backend yet. Anything beyond the basic group system should be specced separately.
+
 Overview:
 Players can form groups with other players by creating a group, and inviting the other user via the other players username. When in a group, the bottom of the screen should be dedicated to the users in the current group, displaying Username, level, current location and activity, and an indicator that displays whether or not each group member is "involved" in what the user is currently doing. This information will be in a display tag per user, like an ID card.
 

@@ -31,6 +31,7 @@ import {
   notification,
   tutorialStepDefinition,
   playerTutorialProgress,
+  playerOfflineEarning,
 } from './tables_core';
 import {
   insertNotification,
@@ -42,7 +43,7 @@ import './minigames/rhythmTap';
 import { seedCardDefinitions } from './minigames/cardDuel';
 import './minigames/cardDuel';
 import { seedStatDefinitions, setStatSource, getStatTotals } from './stats';
-import { seedClassSystem, CLASS_TREE_IDS, setCapability, CAPABILITY_KEYS, getCapabilityTotal } from './class';
+import { seedClassSystem, CLASS_TREE_IDS, setCapability, CAPABILITY_KEYS, getCapabilityTotal, hasUnlockedClass } from './class';
 import { buildSeed, Rng } from './rng';
 import { seedArmory } from './armory';
 import {
@@ -674,9 +675,20 @@ const TUTORIAL_STEP_SEEDS: TutorialStepSeed[] = [
     tone: { tag: 'inCharacter' },
   },
   {
+    stepId: 'first_skill_spend',
+    sortOrder: 4,
+    prereqStepId: 'first_level_up',
+    triggerCondition: { tag: 'chained' },
+    headline: 'Spend your point.',
+    body: 'A skill point is yours to spend. Tap Unlock Parts — it opens the next resource and starts the chain that follows.',
+    primaryCtaLabel: 'Continue.',
+    spotlightTargetKey: 'skill_node:unlock_parts',
+    tone: { tag: 'meta' },
+  },
+  {
     stepId: 'unlock_shelter_taken',
     sortOrder: 5,
-    prereqStepId: 'first_level_up',
+    prereqStepId: 'first_skill_spend',
     triggerCondition: { tag: 'skillPurchased', value: { skillId: 'unlock_shelter', minLevel: 1 } },
     headline: 'Shelter, in theory.',
     body: "You unlocked the Shelter. That puts a Build Shelter activity on the Wastes — once you've built it, you can travel inside. There's room in there for a Workbench, and a Workbench will eventually automate your scavenging while you focus on bigger things. Build it when you're ready.",
@@ -687,7 +699,7 @@ const TUTORIAL_STEP_SEEDS: TutorialStepSeed[] = [
   {
     stepId: 'unlock_parts_taken',
     sortOrder: 6,
-    prereqStepId: 'first_level_up',
+    prereqStepId: 'first_skill_spend',
     triggerCondition: { tag: 'skillPurchased', value: { skillId: 'unlock_parts', minLevel: 1 } },
     headline: 'Parts.',
     body: 'Bolts, gears, broken machinery. Worth more than scrap to anyone who can fix things. There\'s a new activity in the Wastes for finding them.',
@@ -756,9 +768,9 @@ const TUTORIAL_STEP_SEEDS: TutorialStepSeed[] = [
     prereqStepId: 'shelter_built',
     triggerCondition: { tag: 'treeCompleted', value: { treeId: 'beginner' } },
     headline: 'Beginner skill tree complete.',
-    body: "You've discovered every resource this region has and built your first shelter. Whatever comes next, you're ready for it.",
-    primaryCtaLabel: 'Onwards.',
-    spotlightTargetKey: '',
+    body: "Resources mapped. Shelter standing. Open your Character tab next — your stats are the spine of classes, battles, and everything that follows.",
+    primaryCtaLabel: 'Show me.',
+    spotlightTargetKey: 'tab:character',
     tone: { tag: 'meta' },
   },
 ];
@@ -838,11 +850,7 @@ export const init = spacetimedb.init(ctx => {
       ctx.db.activityCost.insert({ id: 0n, ...seed });
     }
   }
-  for (const seed of TUTORIAL_STEP_SEEDS) {
-    if (ctx.db.tutorialStepDefinition.stepId.find(seed.stepId) === null) {
-      ctx.db.tutorialStepDefinition.insert(seed);
-    }
-  }
+  seedTutorialSteps(ctx);
   seedCardDefinitions(ctx);
   seedStatDefinitions(ctx);
   seedArmory(ctx);
@@ -868,7 +876,21 @@ export const runSeedMigration = spacetimedb.reducer(ctx => {
   seedArmory(ctx);
   seedActions(ctx);
   seedStatDefinitions(ctx);
+  seedTutorialSteps(ctx);
 });
+
+// Tutorial seeds are upserted (not insert-only) so copy edits, prereq
+// re-wires, and new steps land on existing DBs via runSeedMigration.
+function seedTutorialSteps(ctx: any) {
+  for (const seed of TUTORIAL_STEP_SEEDS) {
+    const existing = ctx.db.tutorialStepDefinition.stepId.find(seed.stepId);
+    if (existing === null) {
+      ctx.db.tutorialStepDefinition.insert(seed);
+    } else {
+      ctx.db.tutorialStepDefinition.stepId.update({ ...existing, ...seed });
+    }
+  }
+}
 
 export const onDisconnect = spacetimedb.clientDisconnected(ctx => {
   handleMinigameDisconnect(ctx);
@@ -1474,6 +1496,7 @@ export const signup = spacetimedb.reducer(
       updatedAt: ctx.timestamp,
       comboLastClickAtMicros: 0n,
       comboBp: 0,
+      comboClickCount: 0,
       actionCount: 0n,
     });
     ctx.db.playerSkillPointBalance.insert({
@@ -1524,8 +1547,35 @@ export const login = spacetimedb.reducer(
       username: u,
       createdAt: ctx.timestamp,
     });
+
+    surfaceOfflineEarnings(ctx, u);
   }
 );
+
+// Drain any accumulated offline earnings (forge_heart bonus) into a single
+// system notification, then delete the rows. Resource display uses
+// resourceDefinition.name when available; falls back to the resourceId.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function surfaceOfflineEarnings(ctx: any, username: string): void {
+  const parts: string[] = [];
+  for (const row of ctx.db.playerOfflineEarning.player_offline_earning_username.filter(username)) {
+    if (row.amount > 0n) {
+      const def = ctx.db.resourceDefinition.resourceId.find(row.resourceId);
+      const label = def !== null ? def.name : row.resourceId;
+      parts.push(`+${row.amount.toString()} ${label}`);
+    }
+    ctx.db.playerOfflineEarning.sourceKey.delete(row.sourceKey);
+  }
+  if (parts.length > 0) {
+    insertNotification(
+      ctx,
+      username,
+      'system',
+      `Forge Heart: earned ${parts.join(', ')} while you were away.`,
+      undefined
+    );
+  }
+}
 
 export const logout = spacetimedb.reducer(ctx => {
   if (ctx.db.session.identity.find(ctx.sender) !== null) {
@@ -1583,6 +1633,35 @@ function applyFortuneProc(
     addResource(ctx, username, 'parts', 1n);
   }
 
+  // Echo (Wanderer capstone) — chance to grant a parallel proc to a random
+  // group member. Recipient might not have unlocked this resource yet; the
+  // grant is still applied (creates a balance row), interpreted as a
+  // foreshadowing of what's coming. addResource doesn't gate on unlock.
+  const echoChanceBp = getCapabilityTotal(ctx, username, CAPABILITY_KEYS.FORTUNE_PROC_ECHO_CHANCE_BP);
+  if (echoChanceBp > 0 && rng.uniform() < echoChanceBp / 10000) {
+    const myMembership = ctx.db.groupMember.username.find(username);
+    if (myMembership !== null) {
+      const others: string[] = [];
+      for (const member of ctx.db.groupMember.group_member_group_id.filter(myMembership.groupId)) {
+        if (member.username !== username) others.push(member.username);
+      }
+      if (others.length > 0) {
+        const pick = others[rng.intInRange(0, others.length - 1)]!;
+        const echoAmount = bonus + cascadeBonus;
+        if (echoAmount > 0n) {
+          addResource(ctx, pick, resourceId, echoAmount);
+          insertNotification(
+            ctx,
+            pick,
+            'system',
+            `Fortune Echo from ${username}! +${echoAmount.toString()} ${resourceId}`,
+            undefined
+          );
+        }
+      }
+    }
+  }
+
   // Dedup-accumulate notification: merge into existing entry within 5-second window.
   const epochWindow = ctx.timestamp.microsSinceUnixEpoch / 5_000_000n;
   const dedupeKey = `fortuneProc:${username}:${resourceId}:${epochWindow.toString()}`;
@@ -1604,6 +1683,84 @@ function applyFortuneProc(
     actionableRefId: undefined,
     dedupeKey,
   });
+}
+
+/**
+ * Vein drop (Wanderer capstone `rich_veins`): on a manual click, small chance
+ * to drop a "vein" — a flat burst of every unlocked resource scaled by player
+ * level. Each unlocked resource grants `1 + floor(playerLevel / 5)` units.
+ * Independent of yield modifiers; the burst is the whole reward.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function applyVeinDrop(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  ctx: any,
+  username: string,
+  actionCount: bigint
+): void {
+  const chanceBp = getCapabilityTotal(ctx, username, CAPABILITY_KEYS.VEIN_DROP_CHANCE_BP);
+  if (chanceBp <= 0) return;
+
+  const seed = buildSeed([ctx.timestamp.microsSinceUnixEpoch, username, actionCount, 'vein']);
+  const rng = new Rng(seed);
+  if (rng.uniform() >= chanceBp / 10000) return;
+
+  const ps = ctx.db.playerState.username.find(username);
+  if (ps === null) return;
+  const perResource = BigInt(1 + Math.floor(ps.playerLevel / 5));
+
+  const grants: string[] = [];
+  for (const resDef of ctx.db.resourceDefinition.iter()) {
+    if (resDef.unlockSkillId !== '') {
+      if (skillLevel(ctx, username, resDef.unlockSkillId) < resDef.unlockSkillLevel) continue;
+    }
+    addResource(ctx, username, resDef.resourceId, perResource);
+    grants.push(`+${perResource.toString()} ${resDef.name}`);
+  }
+
+  if (grants.length > 0) {
+    insertNotification(
+      ctx,
+      username,
+      'system',
+      `Vein! Discovered ${grants.join(', ')}.`,
+      undefined
+    );
+  }
+}
+
+/**
+ * Momentum (Striker capstone): grant one free class point. Targets the
+ * equipped class; falls back to the first unlocked class when none equipped.
+ * Skips silently if no class is unlocked yet (shouldn't happen — momentum
+ * gates on Power 30 + Striker capstone).
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function grantMomentumClassPoint(ctx: any, username: string): void {
+  let targetClassId = '';
+  const equipped = ctx.db.playerEquippedClass.username.find(username);
+  if (equipped !== null && equipped.classId !== '') {
+    targetClassId = equipped.classId;
+  } else {
+    for (const classId of CLASS_TREE_IDS) {
+      if (hasUnlockedClass(ctx, username, classId)) {
+        targetClassId = classId;
+        break;
+      }
+    }
+  }
+  if (targetClassId === '') return;
+  const treeDef = ctx.db.skillTreeDefinition.treeId.find(targetClassId);
+  if (treeDef === null) return;
+  addPoolBalance(ctx, username, treeDef.pointPoolId, 1);
+  const className = targetClassId.charAt(0).toUpperCase() + targetClassId.slice(1);
+  insertNotification(
+    ctx,
+    username,
+    'system',
+    `Momentum! Free ${className} point granted.`,
+    undefined
+  );
 }
 
 /**
@@ -1797,28 +1954,43 @@ export const scavengeActivity = spacetimedb.reducer(
     // Re-fetch after update so performScavengeActivity inherits the new counter.
     ps = ctx.db.playerState.username.find(s.username)!;
 
-    // === Combo state (Striker path) ===
+    // === Combo state (Striker path) + click count for momentum capstone ===
+    // Click count increments unconditionally on consecutive clicks within the
+    // window so Momentum works even without the Combo node — they are siblings
+    // in the Striker tree, not strict prereqs.
+    const nowMicros = ctx.timestamp.microsSinceUnixEpoch;
+    const COMBO_WINDOW_MICROS = 3_000_000n;
+    const elapsed = ps.comboLastClickAtMicros > 0n
+      ? nowMicros - ps.comboLastClickAtMicros
+      : COMBO_WINDOW_MICROS + 1n; // treat "never clicked" as expired
+    const inWindow = elapsed <= COMBO_WINDOW_MICROS;
+
     const comboEnabled = getCapabilityTotal(ctx, s.username, CAPABILITY_KEYS.MANUAL_CLICK_COMBO_ENABLED);
     let comboBp = 0;
-    if (comboEnabled > 0) {
-      const nowMicros = ctx.timestamp.microsSinceUnixEpoch;
-      // Combo maintained if next click arrives within 3 seconds of the previous.
-      const COMBO_WINDOW_MICROS = 3_000_000n;
+    if (comboEnabled > 0 && inWindow) {
       const COMBO_BP_PER_CLICK = 500; // +5% per hit
       const MAX_COMBO_BP = 5000;      // cap at +50%
-      const elapsed = ps.comboLastClickAtMicros > 0n
-        ? nowMicros - ps.comboLastClickAtMicros
-        : COMBO_WINDOW_MICROS + 1n; // treat "never clicked" as expired
-      comboBp = elapsed <= COMBO_WINDOW_MICROS
-        ? Math.min(ps.comboBp + COMBO_BP_PER_CLICK, MAX_COMBO_BP)
-        : 0;
-      ctx.db.playerState.username.update({
-        ...ctx.db.playerState.username.find(s.username)!,
-        comboLastClickAtMicros: nowMicros,
-        comboBp,
-        updatedAt: ctx.timestamp,
-      });
-      ps = ctx.db.playerState.username.find(s.username)!;
+      comboBp = Math.min(ps.comboBp + COMBO_BP_PER_CLICK, MAX_COMBO_BP);
+    }
+    const newClickCount = inWindow ? ps.comboClickCount + 1 : 1;
+
+    ctx.db.playerState.username.update({
+      ...ctx.db.playerState.username.find(s.username)!,
+      comboLastClickAtMicros: nowMicros,
+      comboBp,
+      comboClickCount: newClickCount,
+      updatedAt: ctx.timestamp,
+    });
+    ps = ctx.db.playerState.username.find(s.username)!;
+
+    // === Momentum (Striker capstone) — free craft point at every Nth click ===
+    const momentumThreshold = getCapabilityTotal(
+      ctx,
+      s.username,
+      CAPABILITY_KEYS.COMBO_FREE_CRAFT_THRESHOLD
+    );
+    if (momentumThreshold > 0 && newClickCount % momentumThreshold === 0) {
+      grantMomentumClassPoint(ctx, s.username);
     }
 
     // === yieldPer100 assembly ===
@@ -1860,6 +2032,9 @@ export const scavengeActivity = spacetimedb.reducer(
 
     // === Wide net ===
     applyWideNet(ctx, s.username, resourceId, totalGain, newActionCount);
+
+    // === Vein drop (Wanderer capstone rich_veins) ===
+    applyVeinDrop(ctx, s.username, newActionCount);
 
     // === Progress all automation slots ===
     // MANUAL_CLICK_PROGRESSES_ALL_SLOTS: each manual click also fires one free
@@ -2284,6 +2459,29 @@ export const upgradeStructure = spacetimedb.reducer(
 
 const AUTOMATION_EVENT_TTL_MICROS = 10_000_000n;
 
+// Add to the per-(player, resource) offline-bonus accumulator. Read on login
+// to fire a single Forge Heart toast and clear the rows.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function accumulateOfflineEarning(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  ctx: any,
+  username: string,
+  resourceId: string,
+  amount: bigint
+): void {
+  if (amount <= 0n) return;
+  const sourceKey = `${username}:${resourceId}`;
+  const existing = ctx.db.playerOfflineEarning.sourceKey.find(sourceKey);
+  if (existing === null) {
+    ctx.db.playerOfflineEarning.insert({ sourceKey, username, resourceId, amount });
+  } else {
+    ctx.db.playerOfflineEarning.sourceKey.update({
+      ...existing,
+      amount: existing.amount + amount,
+    });
+  }
+}
+
 export const runAutomation = spacetimedb.reducer(
   { arg: automationTick.rowType },
   (ctx, { arg }) => {
@@ -2315,6 +2513,36 @@ export const runAutomation = spacetimedb.reducer(
     const autoYieldBp = getCapabilityTotal(ctx, arg.username, CAPABILITY_KEYS.AUTOMATION_YIELD_PCT_BP);
     yieldPer100 += Math.floor(autoYieldBp / 100);
 
+    // AUTOMATION_PHALANX_PCT_BP: per-other-slot synergy bonus. tickCount
+    // includes this tick, so subtract one to count siblings only. Solo slots
+    // get no bonus — the math intentionally rewards parallel_frame investment.
+    const phalanxBp = getCapabilityTotal(ctx, arg.username, CAPABILITY_KEYS.AUTOMATION_PHALANX_PCT_BP);
+    if (phalanxBp > 0) {
+      const otherSlots = Math.max(0, tickCount - 1);
+      yieldPer100 += Math.floor((otherSlots * phalanxBp) / 100);
+    }
+
+    // OFFLINE_AUTOMATION_MULTIPLIER_BP (forge_heart): when no client session is
+    // alive for this player, multiply yieldPer100 by (1 + bonus). Applied last
+    // so it scales the full boosted yield (not just the base).
+    const offlineMultBp = getCapabilityTotal(
+      ctx,
+      arg.username,
+      CAPABILITY_KEYS.OFFLINE_AUTOMATION_MULTIPLIER_BP
+    );
+    let offlineApplied = false;
+    if (offlineMultBp > 0) {
+      let hasSession = false;
+      for (const _ of ctx.db.session.session_username.filter(arg.username)) {
+        hasSession = true;
+        break;
+      }
+      if (!hasSession) {
+        yieldPer100 = Math.floor((yieldPer100 * (10000 + offlineMultBp)) / 10000);
+        offlineApplied = true;
+      }
+    }
+
     const result = performScavengeActivity(
       ctx,
       arg.username,
@@ -2329,6 +2557,16 @@ export const runAutomation = spacetimedb.reducer(
       const autoActionCount = ctx.timestamp.microsSinceUnixEpoch ^ BigInt(arg.structureId.length);
       applyFortuneProc(ctx, arg.username, result.yieldResourceId, result.gain, autoActionCount);
       applyWideNet(ctx, arg.username, result.yieldResourceId, result.gain, autoActionCount);
+
+      // forge_heart bookkeeping — surface the offline-only portion to the
+      // player on next login. bonus = gain × (offlineMultBp / (10000 + offlineMultBp)).
+      if (offlineApplied) {
+        const denom = BigInt(10000 + offlineMultBp);
+        const bonus = (result.gain * BigInt(offlineMultBp)) / denom;
+        if (bonus > 0n) {
+          accumulateOfflineEarning(ctx, arg.username, result.yieldResourceId, bonus);
+        }
+      }
 
       const nowMicros = ctx.timestamp.microsSinceUnixEpoch;
       for (const old of ctx.db.automationEvent.automation_event_username.filter(
