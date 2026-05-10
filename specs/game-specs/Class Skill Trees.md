@@ -135,14 +135,14 @@ Brute (treeId `brute`, pool `class_brute`):
 | `parallel_frame_1` | Parallel Frame I | 1 | 1 | (none) | +1 `automation_slot` |
 | `parallel_frame_2` | Parallel Frame II | 1 | 2 | `parallel_frame_1` at 1 | +1 `automation_slot` |
 | `parallel_frame_3` | Parallel Frame III | 1 | 3 | `parallel_frame_2` at 1 | +1 `automation_slot` |
-| `steady_hands` | Steady Hands | 1 | 1 | `parallel_frame_1` at 1 | (capability key `automation_cost_tolerant`, consumed by automation tick reducer to skip cost-failure aborts) |
+| `steady_hands` | Phalanx Drill | 1 | 1 | `parallel_frame_1` at 1 | +500 bp `automation_phalanx_pct_bp` per level — each *other* active automation slot grants +5% yield to all of the player's automation ticks. Solo slots get nothing. |
 | `heavy_frame` | Heavy Frame | 1 | 2 | `parallel_frame_1` at 1 | +1 to `manual_click_tick_count` (manual clicks count as 2 ticks toward the slotted activity) |
 | `endurance_infinite` | Endurance | infiniteScaling | 1 per level | `parallel_frame_1` at 1 | +100 bp `automation_yield_pct_bp` per level (1% per level, additive) |
 
 Capstone branch `brute_cap` (gates: Vigor 30, all maxLevel 1, all cost 5):
-+ `forge_heart` — automation slots tick at 1.5× yield while the player is logged out (capability key `offline_automation_multiplier_bp` = 5000).
-+ `iron_will` — manual clicks while in a Defensive Battle grant ward charges to the caller (capability key `combat_click_grants_ward`, consumed by the battle reducer).
-+ `bulwark` — automation cost-failure tolerance promoted from "skip aborts" to "ticks succeed even when costs aren't met" (capability key `automation_free_runs`).
++ `forge_heart` — automation slots tick at 1.5× yield while the player is logged out (capability key `offline_automation_multiplier_bp` = 5000, consumed by `runAutomation` after all other yield modifiers, so the bonus scales the full boosted yield not just the base). "Logged out" = no rows in the `session` table for the player. The bonus portion (50% of post-multiplier gain) accumulates per-resource into a private `player_offline_earning` table during the offline period; on next login, those rows are drained into a single `system` notification ("Forge Heart: earned +N Scrap, +M Parts while you were away.") and deleted. Brand-new accounts have no accumulator on first sign-up.
++ `iron_will` — surviving an unwarded hit in a Defensive Battle has a 25% chance to grant the player one ward charge that absorbs the next incoming hit (capability key `combat_damage_taken_ward_bp` = 2500, consumed by the self-damage path of the battle reducer; rolled only when actual HP loss occurred, never on a fatal hit, never when an existing ward already absorbed the damage). Reframed from the original "manual clicks during battle grant wards" effect, which was a no-op because manual clicks aren't possible during a battle.
++ `bulwark` — Phalanx Drill effect deepens: +2000 bp `automation_phalanx_pct_bp` (each other active automation slot grants an additional +20% yield, total +25% per sibling slot when stacked with Phalanx Drill). At max Brute (4 slots from base + parallel_frame_1/2/3), every tick gets +75% from sibling synergy alone, on top of `endurance_infinite` per-level scaling and structure efficiency upgrades. Reframed from the original "automation ticks succeed even when costs aren't met" effect, which was a no-op because no scavenge activity in the early game has any resource cost (the cost system is built but unseeded). When costs return in a future tier, a new node can address them.
 
 Generalist (treeId `generalist`, pool `class_generalist`):
 
@@ -173,7 +173,7 @@ Striker (treeId `striker`, pool `class_striker`):
 
 Capstone branch `striker_cap` (gates: Power 30, all maxLevel 1, all cost 5):
 + `crit_strike` — manual clicks have a 5% chance to deal 10× yield (capability key `manual_click_crit_chance_bp` = 500, with a separate `manual_click_crit_multiplier_bp` = 100000 read by the activity reducer).
-+ `momentum` — every 50 consecutive clicks within combo window grants a free craft point in any unlocked class (capability key `combo_free_craft_threshold` = 50, consumed by the combo subsystem to fire a `craftClassPoint` server-side without resource cost).
++ `momentum` — every 50 consecutive clicks within the 3-second combo window grants a free class point (capability key `combo_free_craft_threshold` = 50, consumed by the manual-click reducer). The free point goes to the player's currently equipped class; if none is equipped, falls back to the first unlocked class. Notification fires with the granted class's name. Implementation: a separate `comboClickCount` field on `playerState` (uncapped, distinct from `comboBp` which caps at 5000) increments on every consecutive in-window click and resets when the window expires; momentum fires whenever `clickCount % threshold === 0`. Works without the `combo` node — both are siblings, not strict prereqs.
 + `ironfist` — Power scales harder into combat damage (capability key `combat_power_damage_multiplier_bp` = 5000, consumed by the action stat scaling reducer to multiply Power's contribution to damage by 1.5).
 
 Wanderer (treeId `wanderer`, pool `class_wanderer`):
@@ -188,8 +188,8 @@ Wanderer (treeId `wanderer`, pool `class_wanderer`):
 | `wanderer_infinite` | Wanderer | infiniteScaling | 1 per level | `lucky_strike_2` at 1 | +25 bp `fortune_proc_chance_bp` per level |
 
 Capstone branch `wanderer_cap` (gates: Fortune 30, all maxLevel 1, all cost 5):
-+ `rich_veins` — clicks have a 0.1% chance to drop a "vein" — burst of mixed resources scaled to player level (capability key `vein_drop_chance_bp` = 10, consumed by the activity reducer).
-+ `echo` — Fortune procs have a chance to fire on a random group member's session simultaneously (capability key `fortune_proc_echo_chance_bp` = 2500; the activity reducer, on proc, rolls echo and writes a parallel grant to a random group member, plus a notification).
++ `rich_veins` — manual clicks have a 0.1% chance to drop a "vein" — a burst of every unlocked resource scaled to player level (capability key `vein_drop_chance_bp` = 10, consumed by the manual-click reducer after fortune proc and wide net). Each unlocked resource grants `1 + floor(playerLevel / 5)` units (so +2 each at level 5, +7 each at level 30). The unlock check uses each resource's `unlockSkillId` / `unlockSkillLevel` so freshly-unlocked resources participate immediately. PRNG seed: `(timestamp, username, actionCount, 'vein')`. A single `system` notification summarizes the drop ("Vein! Discovered +N Scrap, +M Parts, ...").
++ `echo` — when the player's Fortune proc fires, 25% chance to grant a parallel proc to a random *other* group member (capability key `fortune_proc_echo_chance_bp` = 2500; consumed inside `applyFortuneProc` after the cascade and quartermaster-drop rolls, sharing the same PRNG state for determinism). The recipient receives `bonus + cascadeBonus` of the same resource the proccer earned, plus a `system` notification ("Fortune Echo from <username>! +N <resource>"). If the proccer isn't in a group, or the group has no other members, the echo silently no-ops. The recipient is awarded the resource even if they haven't unlocked it yet — `addResource` doesn't gate on unlock, and the bounty foreshadows what's coming.
 + `fates_favor` — Fortune procs are 2× larger (capability key `fortune_proc_multiplier_bp` = 20000, multiplicatively applied on the proc magnitude).
 
 Subsystem integration:

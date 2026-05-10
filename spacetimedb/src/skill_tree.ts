@@ -13,10 +13,11 @@ import {
 export function isTreeCompleted(ctx: any, username: string, treeId: string): boolean {
   let total = 0;
   let maxedCount = 0;
+  // Capstone branches: only one of N nodes can ever be taken (others lock out).
+  // Count each branch as a single slot, maxed when any node in it is maxed.
+  const capstoneBranches = new Map<string, boolean>();
   for (const def of ctx.db.skillDefinition.skill_definition_tree.filter(treeId)) {
-    // infiniteScaling nodes have no level cap and are excluded from completion checks.
     if (def.infiniteScaling === true) continue;
-    total += 1;
     let level = 0;
     for (const ps of ctx.db.playerSkill.player_skill_username.filter(username)) {
       if (ps.skillId === def.skillId) {
@@ -24,7 +25,17 @@ export function isTreeCompleted(ctx: any, username: string, treeId: string): boo
         break;
       }
     }
-    if (level >= def.maxLevel) maxedCount += 1;
+    if (def.capstoneBranchId && def.capstoneBranchId !== '') {
+      const prev = capstoneBranches.get(def.capstoneBranchId) ?? false;
+      capstoneBranches.set(def.capstoneBranchId, prev || level >= def.maxLevel);
+    } else {
+      total += 1;
+      if (level >= def.maxLevel) maxedCount += 1;
+    }
+  }
+  for (const anyMaxed of capstoneBranches.values()) {
+    total += 1;
+    if (anyMaxed) maxedCount += 1;
   }
   return total > 0 && maxedCount === total;
 }
@@ -106,11 +117,21 @@ const ORDERED_TREE_IDS = [
 function isTreeCompletedFromMap(ctx: any, treeId: string, skillLevels: Map<string, number>): boolean {
   let total = 0;
   let maxedCount = 0;
+  const capstoneBranches = new Map<string, boolean>();
   for (const def of ctx.db.skillDefinition.skill_definition_tree.filter(treeId)) {
     if (def.infiniteScaling === true) continue;
-    total += 1;
     const level = skillLevels.get(def.skillId) ?? 0;
-    if (level >= def.maxLevel) maxedCount += 1;
+    if (def.capstoneBranchId && def.capstoneBranchId !== '') {
+      const prev = capstoneBranches.get(def.capstoneBranchId) ?? false;
+      capstoneBranches.set(def.capstoneBranchId, prev || level >= def.maxLevel);
+    } else {
+      total += 1;
+      if (level >= def.maxLevel) maxedCount += 1;
+    }
+  }
+  for (const anyMaxed of capstoneBranches.values()) {
+    total += 1;
+    if (anyMaxed) maxedCount += 1;
   }
   return total > 0 && maxedCount === total;
 }
@@ -225,48 +246,79 @@ interface IntermediateSkillSeed {
   treeId: string;
 }
 
-// Layout coordinates: star pattern centered roughly at (0, 400). 200px-spaced
-// from origin for minor; 400px-spaced for majors. The center is offset
-// downward from (0,0) so the Intermediate tree starts below where Beginner
-// would be — but since the canvas is per-tab now this is purely cosmetic.
-const STAR_CENTER_X = 0;
-const STAR_CENTER_Y = 400;
+// Intermediate tree layout — diagonal-X for stat chains, two compact rows
+// below for resource multipliers.
+//
+//   The four stat chains radiate diagonally from the centre. Each chain is
+//   three nodes long (Minor → Major → class Unlock), with the Unlock pinned
+//   at the chain's corner so the player physically arrives there by maxing
+//   that stat:
+//
+//                  Wanderer ◇       ◇ Brute       ← unlocks (corners)
+//                       ◯       ◯
+//                          ◯ ◯               ← majors
+//                          ◯ ◯               ← minors
+//                       ◯       ◯
+//                  Generalist ◇   ◇ Striker
+//
+//   Resource multipliers sit in two horizontal rows below the X.
+const STEP = 130;            // diagonal pitch between chain nodes
+const MULT_ROW_GAP = 130;    // vertical pitch between minor / major mult rows
+const MULT_COL_GAP = 130;    // horizontal pitch between mult columns
 
-// Multiplier nodes live in two rows below the stat star:
-//   row 1 (Y=900) — minor  | row 2 (Y=1100) — major
-// Columns are spaced 200px apart, centered around X=0.
+// Multiplier nodes live in two rows below the stat-X. Six columns: scavenge
+// + the five non-scrap chains.
 interface MultiplierSpec {
   prefix: string; // matches activityDefinition.skillChainPrefix
   resourceLabel: string;
-  columnX: number;
+  columnIndex: number; // 0..5, gets translated into a centred X by helper
 }
 
 const MULTIPLIER_SPECS: MultiplierSpec[] = [
-  { prefix: 'scavenge', resourceLabel: 'Scavenge', columnX: -500 },
-  { prefix: 'parts', resourceLabel: 'Parts', columnX: -300 },
-  { prefix: 'metal', resourceLabel: 'Metal', columnX: -100 },
-  { prefix: 'fabric', resourceLabel: 'Fabric', columnX: 100 },
-  { prefix: 'food', resourceLabel: 'Food', columnX: 300 },
-  { prefix: 'medicine', resourceLabel: 'Meds', columnX: 500 },
+  { prefix: 'scavenge', resourceLabel: 'Scavenge', columnIndex: 0 },
+  { prefix: 'parts', resourceLabel: 'Parts', columnIndex: 1 },
+  { prefix: 'metal', resourceLabel: 'Metal', columnIndex: 2 },
+  { prefix: 'fabric', resourceLabel: 'Fabric', columnIndex: 3 },
+  { prefix: 'food', resourceLabel: 'Food', columnIndex: 4 },
+  { prefix: 'medicine', resourceLabel: 'Meds', columnIndex: 5 },
 ];
 
-const MULT_MINOR_Y = 900;
-const MULT_MAJOR_Y = 1100;
+// Centre the 6 columns horizontally around X=0.
+function multColumnX(idx: number): number {
+  return (idx - (MULTIPLIER_SPECS.length - 1) / 2) * MULT_COL_GAP;
+}
+
+// Multiplier rows sit one full diagonal step below the bottom unlock corners
+// (which are at Y = 3 * STEP) so the 96px-radius unlock and multiplier nodes
+// don't visually collide.
+const MULT_MINOR_Y = STEP * 4;
+const MULT_MAJOR_Y = MULT_MINOR_Y + MULT_ROW_GAP;
 
 function buildMultiplierSeeds(): IntermediateSkillSeed[] {
   const out: IntermediateSkillSeed[] = [];
   let sortOffset = 100;
   for (const spec of MULTIPLIER_SPECS) {
+    // Scrap is high-frequency click income — % both ways. Non-scrap resources
+    // come from low-frequency structures/minigames where +25% on a base of 1
+    // rounds to nothing, so Minor is a flat additive (+2 per level → 2/4/6/8)
+    // and Major remains a percentage on top of (base + flat).
+    const isScrap = spec.prefix === 'scavenge';
+    const minorDesc = isScrap
+      ? `+25% per level to ${spec.resourceLabel} yield. Stacks with Major.`
+      : `+2 ${spec.resourceLabel} per yield event per level (2 / 4 / 6 / 8). Stacks with Major.`;
+    const majorDesc = isScrap
+      ? `+75% per level to ${spec.resourceLabel} yield on top of Minor.`
+      : `+75% per level to ${spec.resourceLabel} yield, applied on top of Minor's flat bonus.`;
     out.push({
       skillId: `${spec.prefix}_minor_multiplier`,
       name: `${spec.resourceLabel} Yield Minor`,
-      description: `+25% per level to ${spec.resourceLabel} yield. Stacks with Major.`,
+      description: minorDesc,
       maxLevel: 4,
       prerequisiteSkillId: '',
       prerequisiteLevel: 0,
       prerequisitePlayerLevel: 0,
       costSkillPoints: 1,
-      positionX: spec.columnX,
+      positionX: multColumnX(spec.columnIndex),
       positionY: MULT_MINOR_Y,
       sortOrder: sortOffset++,
       treeId: 'intermediate',
@@ -274,13 +326,13 @@ function buildMultiplierSeeds(): IntermediateSkillSeed[] {
     out.push({
       skillId: `${spec.prefix}_major_multiplier`,
       name: `${spec.resourceLabel} Yield Major`,
-      description: `+75% per level to ${spec.resourceLabel} yield on top of Minor.`,
+      description: majorDesc,
       maxLevel: 4,
       prerequisiteSkillId: `${spec.prefix}_minor_multiplier`,
       prerequisiteLevel: 4,
       prerequisitePlayerLevel: 0,
       costSkillPoints: 2,
-      positionX: spec.columnX,
+      positionX: multColumnX(spec.columnIndex),
       positionY: MULT_MAJOR_Y,
       sortOrder: sortOffset++,
       treeId: 'intermediate',
@@ -290,6 +342,9 @@ function buildMultiplierSeeds(): IntermediateSkillSeed[] {
 }
 
 const INTERMEDIATE_SKILL_SEEDS: IntermediateSkillSeed[] = [
+  // Stat chains — four diagonals from the centre. Vigor → NE, Power → SE,
+  // Focus → SW, Fortune → NW. The chain ends at a class unlock node (defined
+  // in class.ts) at the same diagonal step extended one further.
   {
     skillId: 'vigor_minor',
     name: 'Vigor Minor',
@@ -299,8 +354,8 @@ const INTERMEDIATE_SKILL_SEEDS: IntermediateSkillSeed[] = [
     prerequisiteLevel: 0,
     prerequisitePlayerLevel: 0,
     costSkillPoints: 1,
-    positionX: STAR_CENTER_X,
-    positionY: STAR_CENTER_Y - 200,
+    positionX: STEP,
+    positionY: -STEP,
     sortOrder: 0,
     treeId: 'intermediate',
   },
@@ -313,8 +368,8 @@ const INTERMEDIATE_SKILL_SEEDS: IntermediateSkillSeed[] = [
     prerequisiteLevel: 4,
     prerequisitePlayerLevel: 0,
     costSkillPoints: 2,
-    positionX: STAR_CENTER_X,
-    positionY: STAR_CENTER_Y - 400,
+    positionX: STEP * 2,
+    positionY: -STEP * 2,
     sortOrder: 1,
     treeId: 'intermediate',
   },
@@ -327,8 +382,8 @@ const INTERMEDIATE_SKILL_SEEDS: IntermediateSkillSeed[] = [
     prerequisiteLevel: 0,
     prerequisitePlayerLevel: 0,
     costSkillPoints: 1,
-    positionX: STAR_CENTER_X + 200,
-    positionY: STAR_CENTER_Y,
+    positionX: STEP,
+    positionY: STEP,
     sortOrder: 2,
     treeId: 'intermediate',
   },
@@ -341,8 +396,8 @@ const INTERMEDIATE_SKILL_SEEDS: IntermediateSkillSeed[] = [
     prerequisiteLevel: 4,
     prerequisitePlayerLevel: 0,
     costSkillPoints: 2,
-    positionX: STAR_CENTER_X + 400,
-    positionY: STAR_CENTER_Y,
+    positionX: STEP * 2,
+    positionY: STEP * 2,
     sortOrder: 3,
     treeId: 'intermediate',
   },
@@ -355,8 +410,8 @@ const INTERMEDIATE_SKILL_SEEDS: IntermediateSkillSeed[] = [
     prerequisiteLevel: 0,
     prerequisitePlayerLevel: 0,
     costSkillPoints: 1,
-    positionX: STAR_CENTER_X,
-    positionY: STAR_CENTER_Y + 200,
+    positionX: -STEP,
+    positionY: STEP,
     sortOrder: 4,
     treeId: 'intermediate',
   },
@@ -369,8 +424,8 @@ const INTERMEDIATE_SKILL_SEEDS: IntermediateSkillSeed[] = [
     prerequisiteLevel: 4,
     prerequisitePlayerLevel: 0,
     costSkillPoints: 2,
-    positionX: STAR_CENTER_X,
-    positionY: STAR_CENTER_Y + 400,
+    positionX: -STEP * 2,
+    positionY: STEP * 2,
     sortOrder: 5,
     treeId: 'intermediate',
   },
@@ -383,8 +438,8 @@ const INTERMEDIATE_SKILL_SEEDS: IntermediateSkillSeed[] = [
     prerequisiteLevel: 0,
     prerequisitePlayerLevel: 0,
     costSkillPoints: 1,
-    positionX: STAR_CENTER_X - 200,
-    positionY: STAR_CENTER_Y,
+    positionX: -STEP,
+    positionY: -STEP,
     sortOrder: 6,
     treeId: 'intermediate',
   },
@@ -397,8 +452,8 @@ const INTERMEDIATE_SKILL_SEEDS: IntermediateSkillSeed[] = [
     prerequisiteLevel: 4,
     prerequisitePlayerLevel: 0,
     costSkillPoints: 2,
-    positionX: STAR_CENTER_X - 400,
-    positionY: STAR_CENTER_Y,
+    positionX: -STEP * 2,
+    positionY: -STEP * 2,
     sortOrder: 7,
     treeId: 'intermediate',
   },
@@ -420,6 +475,14 @@ const STAT_GRANT_SEEDS: StatGrantSeed[] = [
   { skillId: 'focus_major', statId: 'focus', amountPerLevel: 3 },
   { skillId: 'fortune_minor', statId: 'fortune', amountPerLevel: 1 },
   { skillId: 'fortune_major', statId: 'fortune', amountPerLevel: 3 },
+  // Class-tree infinite-scaling stat nodes — each grants +1 of the class's
+  // governing stat per level. No cap; cost-curve on class point crafting is
+  // the natural soft cap. Always-on (`:skill:` source), so investment persists
+  // across class swaps.
+  { skillId: 'vigor_growth', statId: 'vigor', amountPerLevel: 1 },
+  { skillId: 'focus_growth', statId: 'focus', amountPerLevel: 1 },
+  { skillId: 'power_growth', statId: 'power', amountPerLevel: 1 },
+  { skillId: 'fortune_growth', statId: 'fortune', amountPerLevel: 1 },
 ];
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -434,9 +497,14 @@ export function seedSkillTrees(ctx: any): void {
       ctx.db.skillTreeDefinition.insert(tree);
     }
   }
+  // Upsert: copy edits (e.g. Minor flat-bonus rewording, balance tweaks to
+  // costSkillPoints / maxLevel) propagate to live DBs via runSeedMigration.
   for (const seed of INTERMEDIATE_SKILL_SEEDS) {
-    if (ctx.db.skillDefinition.skillId.find(seed.skillId) === null) {
+    const existing = ctx.db.skillDefinition.skillId.find(seed.skillId);
+    if (existing === null) {
       ctx.db.skillDefinition.insert(seed);
+    } else {
+      ctx.db.skillDefinition.skillId.update({ ...existing, ...seed });
     }
   }
   for (const grant of STAT_GRANT_SEEDS) {

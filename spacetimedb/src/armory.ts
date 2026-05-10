@@ -2,6 +2,7 @@ import { t, SenderError } from 'spacetimedb/server';
 import spacetimedb from './schema';
 import { Rng, buildSeed, pickWeightedWithoutReplacement, rollAffixAmount } from './rng';
 import { setStatSource, clearStatSourcesByPrefix } from './stats';
+import { CAPABILITY_KEYS, getCapabilityTotal } from './class';
 import {
   itemDefinition,
   itemDefinitionAffix,
@@ -201,6 +202,38 @@ export const myEquipment = spacetimedb.view(
   }
 );
 
+// Discounted armory upgrade costs for the player's next level.
+// Bakes ARMORY_COST_REDUCTION_BP into discountedAmount so the client
+// never needs to re-apply the math locally.
+const ArmoryUpgradeCostDiscountedRow = t.object('ArmoryUpgradeCostDiscountedRow', {
+  resourceId: t.string(),
+  originalAmount: t.u64(),
+  discountedAmount: t.u64(),
+  targetLevel: t.u32(),
+});
+
+export const myArmoryUpgradeCost = spacetimedb.view(
+  { name: 'my_armory_upgrade_cost', public: true },
+  t.array(ArmoryUpgradeCostDiscountedRow),
+  ctx => {
+    const s = ctx.db.session.identity.find(ctx.sender);
+    if (s === null) return [];
+    const state = ctx.db.playerArmoryState.username.find(s.username);
+    const currentLevel = state?.level ?? 0;
+    const targetLevel = currentLevel + 1;
+    if (targetLevel > MAX_ARMORY_LEVEL) return [];
+    const reductionBp = getCapabilityTotal(ctx, s.username, CAPABILITY_KEYS.ARMORY_COST_REDUCTION_BP);
+    const costMult = Math.max(0, 1 - reductionBp / 10000);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result: any[] = [];
+    for (const c of ctx.db.armoryUpgradeCost.armory_upgrade_cost_level.filter(targetLevel)) {
+      const discountedAmount = BigInt(Math.max(1, Math.floor(Number(c.amount) * costMult)));
+      result.push({ resourceId: c.resourceId, originalAmount: c.amount, discountedAmount, targetLevel });
+    }
+    return result;
+  }
+);
+
 // ---------- Reducers ----------
 
 export const upgradeArmory = spacetimedb.reducer(ctx => {
@@ -215,13 +248,18 @@ export const upgradeArmory = spacetimedb.reducer(ctx => {
   if (costs.length === 0) {
     throw new SenderError('No upgrade cost defined for next level');
   }
+  // ARMORY_COST_REDUCTION_BP: e.g. 2000 bp = 20% off.  Floor to 1 to prevent free upgrades.
+  const reductionBp = getCapabilityTotal(ctx, s.username, CAPABILITY_KEYS.ARMORY_COST_REDUCTION_BP);
+  const costMult = Math.max(0, 1 - reductionBp / 10000);
   for (const c of costs) {
-    if (getResource(ctx, s.username, c.resourceId) < c.amount) {
+    const effectiveAmount = BigInt(Math.max(1, Math.floor(Number(c.amount) * costMult)));
+    if (getResource(ctx, s.username, c.resourceId) < effectiveAmount) {
       throw new SenderError(`Insufficient ${c.resourceId}`);
     }
   }
   for (const c of costs) {
-    spendResource(ctx, s.username, c.resourceId, c.amount);
+    const effectiveAmount = BigInt(Math.max(1, Math.floor(Number(c.amount) * costMult)));
+    spendResource(ctx, s.username, c.resourceId, effectiveAmount);
   }
   ctx.db.playerArmoryState.username.update({
     ...state,
@@ -273,20 +311,25 @@ export const craftItem = spacetimedb.reducer(
     const optionalPool = allAffixes
       .filter(a => !a.isGuaranteed)
       .map(a => ({ item: a, weight: a.rollWeight }));
-    const optionalCount = Math.min(rollDef.optionalRollCount, optionalPool.length);
+    // CRAFT_EXTRA_OPTIONAL_COUNT: master crafter node adds extra optional affix rolls.
+    const extraOptional = getCapabilityTotal(ctx, s.username, CAPABILITY_KEYS.CRAFT_EXTRA_OPTIONAL_COUNT);
+    const optionalCount = Math.min(rollDef.optionalRollCount + extraOptional, optionalPool.length);
     const chosenOptional = pickWeightedWithoutReplacement(rng, optionalPool, optionalCount);
 
+    // CRAFT_AFFIX_BIAS_BP: skews the roll distribution toward higher amounts.
+    const craftAffixBiasBp = getCapabilityTotal(ctx, s.username, CAPABILITY_KEYS.CRAFT_AFFIX_BIAS_BP);
+    const extraBias = craftAffixBiasBp / 10000;
     const rolled: { statId: string; amount: number }[] = [];
     for (const a of guaranteed) {
       rolled.push({
         statId: a.statId,
-        amount: rollAffixAmount(rng, a.minAmount, a.maxAmount, state.level, MAX_ARMORY_LEVEL),
+        amount: rollAffixAmount(rng, a.minAmount, a.maxAmount, state.level, MAX_ARMORY_LEVEL, extraBias),
       });
     }
     for (const a of chosenOptional) {
       rolled.push({
         statId: a.statId,
-        amount: rollAffixAmount(rng, a.minAmount, a.maxAmount, state.level, MAX_ARMORY_LEVEL),
+        amount: rollAffixAmount(rng, a.minAmount, a.maxAmount, state.level, MAX_ARMORY_LEVEL, extraBias),
       });
     }
 
@@ -373,6 +416,34 @@ export const unequipItem = spacetimedb.reducer(
   }
 );
 
+// Permanently destroys an item the caller owns. Auto-unequips first if the
+// item is currently equipped (clears any stat sources via unequipInternal),
+// then deletes all itemInstanceAffix rows for the instance, then the
+// itemInstance itself. Idempotent on missing-or-not-owned (throws SenderError).
+export const trashItem = spacetimedb.reducer(
+  { itemInstanceId: t.u64() },
+  (ctx, { itemInstanceId }) => {
+    const s = ctx.db.session.identity.find(ctx.sender);
+    if (s === null) throw new SenderError('Not signed in');
+    const inst = ctx.db.itemInstance.instanceId.find(itemInstanceId);
+    if (inst === null) throw new SenderError('Item not found');
+    if (inst.ownerUsername !== s.username) throw new SenderError('Not your item');
+
+    const itemDef = ctx.db.itemDefinition.itemDefId.find(inst.itemDefId);
+    if (itemDef !== null) {
+      const equipped = findEquippedInSlot(ctx, s.username, itemDef.slotId);
+      if (equipped !== null && equipped.itemInstanceId === itemInstanceId) {
+        unequipInternal(ctx, s.username, itemDef.slotId);
+      }
+    }
+
+    for (const aff of ctx.db.itemInstanceAffix.item_instance_affix_instance.filter(itemInstanceId)) {
+      ctx.db.itemInstanceAffix.id.delete(aff.id);
+    }
+    ctx.db.itemInstance.instanceId.delete(itemInstanceId);
+  }
+);
+
 // ---------- Seed ----------
 
 interface SlotSeed {
@@ -446,14 +517,22 @@ interface AffixSeed {
 }
 
 const AFFIX_SEEDS: AffixSeed[] = [
-  // Rucksack
+  // Rucksack — guaranteed Fortune; optional pool spans the other three stats so
+  // Master Crafter (CRAFT_EXTRA_OPTIONAL_COUNT) has material to roll into.
   { itemDefId: 'rucksack', statId: 'fortune', minAmount: 1, maxAmount: 10, rollWeight: 5, isGuaranteed: true },
   { itemDefId: 'rucksack', statId: 'focus', minAmount: 1, maxAmount: 5, rollWeight: 3, isGuaranteed: false },
-  // Handgun
+  { itemDefId: 'rucksack', statId: 'vigor', minAmount: 1, maxAmount: 4, rollWeight: 2, isGuaranteed: false },
+  { itemDefId: 'rucksack', statId: 'power', minAmount: 1, maxAmount: 4, rollWeight: 2, isGuaranteed: false },
+  // Handgun — guaranteed Power; optional pool covers the other three stats.
   { itemDefId: 'handgun', statId: 'power', minAmount: 1, maxAmount: 10, rollWeight: 5, isGuaranteed: true },
   { itemDefId: 'handgun', statId: 'vigor', minAmount: 1, maxAmount: 8, rollWeight: 3, isGuaranteed: false },
-  // Armor Vest
+  { itemDefId: 'handgun', statId: 'focus', minAmount: 1, maxAmount: 4, rollWeight: 2, isGuaranteed: false },
+  { itemDefId: 'handgun', statId: 'fortune', minAmount: 1, maxAmount: 4, rollWeight: 2, isGuaranteed: false },
+  // Armor Vest — guaranteed Vigor; optional pool covers the other three stats.
   { itemDefId: 'armor_vest', statId: 'vigor', minAmount: 3, maxAmount: 15, rollWeight: 5, isGuaranteed: true },
+  { itemDefId: 'armor_vest', statId: 'focus', minAmount: 1, maxAmount: 4, rollWeight: 2, isGuaranteed: false },
+  { itemDefId: 'armor_vest', statId: 'fortune', minAmount: 1, maxAmount: 4, rollWeight: 2, isGuaranteed: false },
+  { itemDefId: 'armor_vest', statId: 'power', minAmount: 1, maxAmount: 4, rollWeight: 2, isGuaranteed: false },
 ];
 
 interface RollSeed {
@@ -476,27 +555,30 @@ interface RecipeSeed {
   costs: { resourceId: string; amount: bigint }[];
 }
 
+// Non-scrap costs cut ~2.5x from pre-structure-economy values to match the
+// new income rates: Refinery yields ~120 parts/hr, Smelter ~60 metal/hr,
+// Fabric craft is gated on those upstream resources.
 const RECIPE_SEEDS: RecipeSeed[] = [
   {
     recipeId: 'craft_rucksack',
     itemDefId: 'rucksack',
     unlockedAtArmoryLevel: 1,
     sortOrder: 0,
-    costs: [{ resourceId: 'scrap', amount: 200n }, { resourceId: 'fabric', amount: 5n }],
+    costs: [{ resourceId: 'scrap', amount: 200n }, { resourceId: 'fabric', amount: 2n }],
   },
   {
     recipeId: 'craft_handgun',
     itemDefId: 'handgun',
     unlockedAtArmoryLevel: 2,
     sortOrder: 1,
-    costs: [{ resourceId: 'scrap', amount: 500n }, { resourceId: 'parts', amount: 10n }, { resourceId: 'metal', amount: 5n }],
+    costs: [{ resourceId: 'scrap', amount: 500n }, { resourceId: 'parts', amount: 4n }, { resourceId: 'metal', amount: 2n }],
   },
   {
     recipeId: 'craft_armor_vest',
     itemDefId: 'armor_vest',
     unlockedAtArmoryLevel: 3,
     sortOrder: 2,
-    costs: [{ resourceId: 'scrap', amount: 1000n }, { resourceId: 'metal', amount: 15n }, { resourceId: 'fabric', amount: 10n }],
+    costs: [{ resourceId: 'scrap', amount: 1000n }, { resourceId: 'metal', amount: 6n }, { resourceId: 'fabric', amount: 4n }],
   },
 ];
 
@@ -506,38 +588,40 @@ interface UpgradeCostSeed {
   amount: bigint;
 }
 
-// Costs scale roughly geometrically; later levels add new resource gates.
+// Costs scale geometrically; later levels add new resource gates. Non-scrap
+// amounts cut ~2.5x (parts/metal/fabric) and ~5x (medicine) from the original
+// click-economy values to match Refinery/Smelter/Workbench/minigame income.
 const UPGRADE_COST_SEEDS: UpgradeCostSeed[] = [
   { targetLevel: 2, resourceId: 'scrap', amount: 500n },
-  { targetLevel: 2, resourceId: 'parts', amount: 20n },
+  { targetLevel: 2, resourceId: 'parts', amount: 8n },
   { targetLevel: 3, resourceId: 'scrap', amount: 1500n },
-  { targetLevel: 3, resourceId: 'parts', amount: 60n },
-  { targetLevel: 3, resourceId: 'metal', amount: 10n },
+  { targetLevel: 3, resourceId: 'parts', amount: 24n },
+  { targetLevel: 3, resourceId: 'metal', amount: 4n },
   { targetLevel: 4, resourceId: 'scrap', amount: 4000n },
-  { targetLevel: 4, resourceId: 'parts', amount: 150n },
-  { targetLevel: 4, resourceId: 'metal', amount: 30n },
+  { targetLevel: 4, resourceId: 'parts', amount: 60n },
+  { targetLevel: 4, resourceId: 'metal', amount: 12n },
   { targetLevel: 5, resourceId: 'scrap', amount: 10000n },
-  { targetLevel: 5, resourceId: 'parts', amount: 350n },
-  { targetLevel: 5, resourceId: 'metal', amount: 80n },
-  { targetLevel: 5, resourceId: 'fabric', amount: 20n },
+  { targetLevel: 5, resourceId: 'parts', amount: 140n },
+  { targetLevel: 5, resourceId: 'metal', amount: 30n },
+  { targetLevel: 5, resourceId: 'fabric', amount: 8n },
   { targetLevel: 6, resourceId: 'scrap', amount: 25000n },
-  { targetLevel: 6, resourceId: 'metal', amount: 200n },
-  { targetLevel: 6, resourceId: 'fabric', amount: 60n },
+  { targetLevel: 6, resourceId: 'metal', amount: 80n },
+  { targetLevel: 6, resourceId: 'fabric', amount: 24n },
   { targetLevel: 7, resourceId: 'scrap', amount: 60000n },
-  { targetLevel: 7, resourceId: 'metal', amount: 500n },
-  { targetLevel: 7, resourceId: 'fabric', amount: 150n },
+  { targetLevel: 7, resourceId: 'metal', amount: 200n },
+  { targetLevel: 7, resourceId: 'fabric', amount: 60n },
   { targetLevel: 8, resourceId: 'scrap', amount: 150000n },
-  { targetLevel: 8, resourceId: 'metal', amount: 1200n },
-  { targetLevel: 8, resourceId: 'fabric', amount: 400n },
-  { targetLevel: 8, resourceId: 'medicine', amount: 20n },
+  { targetLevel: 8, resourceId: 'metal', amount: 480n },
+  { targetLevel: 8, resourceId: 'fabric', amount: 160n },
+  { targetLevel: 8, resourceId: 'medicine', amount: 4n },
   { targetLevel: 9, resourceId: 'scrap', amount: 400000n },
-  { targetLevel: 9, resourceId: 'metal', amount: 3000n },
-  { targetLevel: 9, resourceId: 'fabric', amount: 1000n },
-  { targetLevel: 9, resourceId: 'medicine', amount: 80n },
+  { targetLevel: 9, resourceId: 'metal', amount: 1200n },
+  { targetLevel: 9, resourceId: 'fabric', amount: 400n },
+  { targetLevel: 9, resourceId: 'medicine', amount: 16n },
   { targetLevel: 10, resourceId: 'scrap', amount: 1000000n },
-  { targetLevel: 10, resourceId: 'metal', amount: 8000n },
-  { targetLevel: 10, resourceId: 'fabric', amount: 2500n },
-  { targetLevel: 10, resourceId: 'medicine', amount: 250n },
+  { targetLevel: 10, resourceId: 'metal', amount: 3200n },
+  { targetLevel: 10, resourceId: 'fabric', amount: 1000n },
+  { targetLevel: 10, resourceId: 'medicine', amount: 50n },
 ];
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -578,34 +662,40 @@ export function seedArmory(ctx: any): void {
         sortOrder: r.sortOrder,
       });
     }
+    // Upsert each cost row: update amount on existing rows (so rebalances land
+    // via runSeedMigration), insert if missing.
     for (const c of r.costs) {
-      let exists = false;
+      let existing = null;
       for (const row of ctx.db.craftingRecipeCost.crafting_recipe_cost_recipe.filter(r.recipeId)) {
         if (row.resourceId === c.resourceId) {
-          exists = true;
+          existing = row;
           break;
         }
       }
-      if (!exists) {
+      if (existing === null) {
         ctx.db.craftingRecipeCost.insert({
           id: 0n,
           recipeId: r.recipeId,
           resourceId: c.resourceId,
           amount: c.amount,
         });
+      } else if (existing.amount !== c.amount) {
+        ctx.db.craftingRecipeCost.id.update({ ...existing, amount: c.amount });
       }
     }
   }
   for (const c of UPGRADE_COST_SEEDS) {
-    let exists = false;
+    let existing = null;
     for (const row of ctx.db.armoryUpgradeCost.armory_upgrade_cost_level.filter(c.targetLevel)) {
       if (row.resourceId === c.resourceId) {
-        exists = true;
+        existing = row;
         break;
       }
     }
-    if (!exists) {
+    if (existing === null) {
       ctx.db.armoryUpgradeCost.insert({ id: 0n, ...c });
+    } else if (existing.amount !== c.amount) {
+      ctx.db.armoryUpgradeCost.id.update({ ...existing, amount: c.amount });
     }
   }
 }

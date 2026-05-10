@@ -1,6 +1,8 @@
 import { t, SenderError } from 'spacetimedb/server';
 import spacetimedb from './schema';
 import { clearStatSourcesByPrefix } from './stats';
+import { addPoolBalance } from './skill_tree';
+import { grantKnownAction, revokeKnownActionsByPrefix } from './actions';
 import {
   playerEquippedClass,
   classNodeEffect,
@@ -16,8 +18,7 @@ import {
 
 export const CAPABILITY_KEYS = {
   AUTOMATION_SLOT: 'automation_slot',
-  AUTOMATION_COST_TOLERANT: 'automation_cost_tolerant',
-  AUTOMATION_FREE_RUNS: 'automation_free_runs',
+  AUTOMATION_PHALANX_PCT_BP: 'automation_phalanx_pct_bp',
   AUTOMATION_YIELD_PCT_BP: 'automation_yield_pct_bp',
   OFFLINE_AUTOMATION_MULTIPLIER_BP: 'offline_automation_multiplier_bp',
   MANUAL_CLICK_YIELD_PCT_BP: 'manual_click_yield_pct_bp',
@@ -39,7 +40,7 @@ export const CAPABILITY_KEYS = {
   COMBAT_HAND_SIZE_BONUS: 'combat_hand_size_bonus',
   COMBAT_DAMAGE_EXTRA_TARGET: 'combat_damage_extra_target',
   COMBAT_POWER_DAMAGE_MULTIPLIER_BP: 'combat_power_damage_multiplier_bp',
-  COMBAT_CLICK_GRANTS_WARD: 'combat_click_grants_ward',
+  COMBAT_DAMAGE_TAKEN_WARD_BP: 'combat_damage_taken_ward_bp',
   COMBAT_LOOT_MULTIPLIER_FLAT_BP: 'combat_loot_multiplier_flat_bp',
   COMBO_FREE_CRAFT_THRESHOLD: 'combo_free_craft_threshold',
   VEIN_DROP_CHANCE_BP: 'vein_drop_chance_bp',
@@ -257,9 +258,189 @@ export const myCapstoneChoices = spacetimedb.view(
   }
 );
 
+// Per-user capability totals — pre-summed by effectKey for the calling player.
+// Lets the client read effective capability values (slot count, wide-net bp,
+// armory cost reduction bp, etc.) without re-implementing the sum at every
+// consumer. One row per non-zero effectKey total.
+const CapabilityTotalType = t.object('CapabilityTotal', {
+  effectKey: t.string(),
+  total: t.i32(),
+});
+
+export const myCapabilityTotals = spacetimedb.view(
+  { name: 'my_capability_totals', public: true },
+  t.array(CapabilityTotalType),
+  ctx => {
+    const s = ctx.db.session.identity.find(ctx.sender);
+    if (s === null) return [];
+    const totals = new Map<string, number>();
+    for (const row of ctx.db.playerCapability.player_capability_username.filter(s.username)) {
+      totals.set(row.effectKey, (totals.get(row.effectKey) ?? 0) + row.amount);
+    }
+    const result: { effectKey: string; total: number }[] = [];
+    for (const [effectKey, total] of totals) {
+      if (total !== 0) result.push({ effectKey, total });
+    }
+    return result;
+  }
+);
+
 // ---------- Reducers ----------
 
 const SWAP_COST_UNITS = 100n; // base resource units to equip/swap a class
+
+// ---------- Class action defs ----------
+// Two thematic, slightly-more-powerful battle actions per class. Granted via
+// playerKnownAction at equipClass time with sourceKey
+//   `{username}:class:{classId}:action:{actionId}`
+// and revoked on unequipClass. The actionDefinition + actionStatScaling rows
+// themselves are seeded by seedClassSystem (below) so they're available for
+// players to slot in their loadout once the class is equipped.
+
+interface ClassActionDef {
+  classId: string;
+  actionId: string;
+  displayName: string;
+  description: string;
+  iconKey: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  targeting: { tag: string; value?: any };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  effect: { tag: string; value: any };
+  sortOrder: number;
+}
+
+const CLASS_ACTION_DEFS: ClassActionDef[] = [
+  // ---------- Brute ----------
+  {
+    classId: 'brute',
+    actionId: 'crushing_blow',
+    displayName: 'Crushing Blow',
+    description: 'Slam one enemy with everything. Heavy damage, scales hard with Power.',
+    iconKey: 'action_crushing_blow',
+    targeting: { tag: 'singleEnemy' },
+    effect: { tag: 'damage', value: { baseMin: 5, baseMax: 9 } },
+    sortOrder: 100,
+  },
+  {
+    classId: 'brute',
+    actionId: 'iron_stand',
+    displayName: 'Iron Stand',
+    description: 'Plant your feet. Grants the party two ward charges.',
+    iconKey: 'action_iron_stand',
+    targeting: { tag: 'partyIncludingSelf' },
+    effect: { tag: 'ward', value: { baseCount: 2 } },
+    sortOrder: 101,
+  },
+  // ---------- Generalist ----------
+  {
+    classId: 'generalist',
+    actionId: 'tactical_volley',
+    displayName: 'Tactical Volley',
+    description: 'Calculated strikes across the line. Modest AoE, scales with Focus and Power.',
+    iconKey: 'action_tactical_volley',
+    targeting: { tag: 'allEnemies' },
+    effect: { tag: 'damage', value: { baseMin: 2, baseMax: 4 } },
+    sortOrder: 110,
+  },
+  {
+    classId: 'generalist',
+    actionId: 'coordinate',
+    displayName: 'Coordinate',
+    description: 'Read the fight, call the play. Heals the party for a meaningful chunk.',
+    iconKey: 'action_coordinate',
+    targeting: { tag: 'partyIncludingSelf' },
+    effect: { tag: 'healAmount', value: { baseMin: 2, baseMax: 6 } },
+    sortOrder: 111,
+  },
+  // ---------- Striker ----------
+  {
+    classId: 'striker',
+    actionId: 'lightning_slash',
+    displayName: 'Lightning Slash',
+    description: 'A precision opener — high ceiling, scales hard with Power.',
+    iconKey: 'action_lightning_slash',
+    targeting: { tag: 'singleEnemy' },
+    effect: { tag: 'damage', value: { baseMin: 4, baseMax: 7 } },
+    sortOrder: 120,
+  },
+  {
+    classId: 'striker',
+    actionId: 'flurry',
+    displayName: 'Flurry',
+    description: 'A stream of consistent strikes. Tight damage band, both ends grow with Power.',
+    iconKey: 'action_flurry',
+    targeting: { tag: 'singleEnemy' },
+    effect: { tag: 'damage', value: { baseMin: 3, baseMax: 4 } },
+    sortOrder: 121,
+  },
+  // ---------- Wanderer ----------
+  {
+    classId: 'wanderer',
+    actionId: 'wildshot',
+    displayName: 'Wildshot',
+    description: 'Pure variance — could whiff, could devastate. Fortune scales the ceiling, the floor stays at zero.',
+    iconKey: 'action_wildshot',
+    targeting: { tag: 'singleEnemy' },
+    effect: { tag: 'damage', value: { baseMin: 0, baseMax: 3 } },
+    sortOrder: 130,
+  },
+  {
+    classId: 'wanderer',
+    actionId: 'lucky_draw',
+    displayName: 'Lucky Draw',
+    description: 'A sharper-than-average roll. Fortune pushes the ceiling, floor stays modest.',
+    iconKey: 'action_lucky_draw',
+    targeting: { tag: 'singleEnemy' },
+    effect: { tag: 'damage', value: { baseMin: 2, baseMax: 3 } },
+    sortOrder: 131,
+  },
+];
+
+interface ClassActionScaling {
+  actionId: string;
+  statId: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  scalingKind: { tag: string; value?: any };
+}
+
+const CLASS_ACTION_SCALINGS: ClassActionScaling[] = [
+  // Brute
+  { actionId: 'crushing_blow', statId: 'power', scalingKind: { tag: 'addToBoth', value: { perPoint: 2 } } },
+  // iron_stand: ward count is fixed at 2; no stat scaling
+  // Generalist
+  { actionId: 'tactical_volley', statId: 'power', scalingKind: { tag: 'addToBoth', value: { perPoint: 1 } } },
+  { actionId: 'tactical_volley', statId: 'focus', scalingKind: { tag: 'addToMax', value: { perPoint: 1 } } },
+  { actionId: 'coordinate', statId: 'focus', scalingKind: { tag: 'addToMax', value: { perPoint: 2 } } },
+  // Striker
+  { actionId: 'lightning_slash', statId: 'power', scalingKind: { tag: 'addToMax', value: { perPoint: 3 } } },
+  { actionId: 'flurry', statId: 'power', scalingKind: { tag: 'addToBoth', value: { perPoint: 2 } } },
+  // Wanderer
+  { actionId: 'wildshot', statId: 'fortune', scalingKind: { tag: 'addToMax', value: { perPoint: 5 } } },
+  { actionId: 'lucky_draw', statId: 'fortune', scalingKind: { tag: 'addToMax', value: { perPoint: 4 } } },
+];
+
+const CLASS_ACTIONS_BY_CLASS = (() => {
+  const m = new Map<string, string[]>();
+  for (const a of CLASS_ACTION_DEFS) {
+    const list = m.get(a.classId) ?? [];
+    list.push(a.actionId);
+    m.set(a.classId, list);
+  }
+  return m;
+})();
+
+function classActionSourceKey(username: string, classId: string, actionId: string): string {
+  return `${username}:class:${classId}:action:${actionId}`;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function grantClassActions(ctx: any, username: string, classId: string): void {
+  const ids = CLASS_ACTIONS_BY_CLASS.get(classId) ?? [];
+  for (const actionId of ids) {
+    grantKnownAction(ctx, classActionSourceKey(username, classId, actionId), username, actionId);
+  }
+}
 
 export const equipClass = spacetimedb.reducer(
   { classId: t.string() },
@@ -336,15 +517,17 @@ export const equipClass = spacetimedb.reducer(
       }
     }
 
-    // 7. Clear previous class's stat + capability sources
+    // 7. Clear previous class's stat + capability sources + class actions
     if (prevClassId !== '') {
       const prevPrefix = `${s.username}:class:${prevClassId}:`;
       clearStatSourcesByPrefix(ctx, s.username, prevPrefix);
       clearCapabilitiesByPrefix(ctx, s.username, prevPrefix);
+      revokeKnownActionsByPrefix(ctx, s.username, prevPrefix, `swapped to ${classId}`);
     }
 
-    // 8. Apply new class's effects for all purchased nodes
+    // 8. Apply new class's effects for all purchased nodes + grant class actions
     applyClassEffects(ctx, s.username, classId);
+    grantClassActions(ctx, s.username, classId);
 
     // 9. Upsert player_equipped_class
     if (existingEquip !== null) {
@@ -358,6 +541,24 @@ export const equipClass = spacetimedb.reducer(
         username: s.username,
         classId,
         equippedAt: ctx.timestamp,
+      });
+    }
+
+    // 10. Grant the class_crafting structure on first equip (idempotent).
+    // class_crafting has no build activity — equipping a class is the trigger.
+    let hasClassCrafting = false;
+    for (const row of ctx.db.playerStructure.player_structure_username.filter(s.username)) {
+      if (row.structureId === 'class_crafting') {
+        hasClassCrafting = true;
+        break;
+      }
+    }
+    if (!hasClassCrafting) {
+      ctx.db.playerStructure.insert({
+        id: 0n,
+        username: s.username,
+        structureId: 'class_crafting',
+        slottedActivityId: '',
       });
     }
   }
@@ -377,10 +578,11 @@ export const unequipClass = spacetimedb.reducer(ctx => {
 
   const prevClassId = existingEquip.classId;
 
-  // Clear the class's stat + capability sources
+  // Clear the class's stat + capability sources + class actions
   const prevPrefix = `${s.username}:class:${prevClassId}:`;
   clearStatSourcesByPrefix(ctx, s.username, prevPrefix);
   clearCapabilitiesByPrefix(ctx, s.username, prevPrefix);
+  revokeKnownActionsByPrefix(ctx, s.username, prevPrefix, 'class unequipped');
 
   // Set classId to '' (keep the row for future equip to find)
   ctx.db.playerEquippedClass.username.update({
@@ -389,6 +591,278 @@ export const unequipClass = spacetimedb.reducer(ctx => {
     equippedAt: ctx.timestamp,
   });
 });
+
+// ---------- Tier-info view ----------
+
+// Per-class crafting tier summary exposed to the client.
+// Tells the frontend exactly which tier the player is on, how far through the
+// tier they are, and whether the tier is unbounded — so the UI can show
+// "Tier 0 · 7 / 10 points (50 Metal + 50 Fabric each)" without any tier-walk
+// logic on the client side.
+const ClassCraftTierType = t.object('ClassCraftTier', {
+  classId: t.string(),
+  currentTierIndex: t.u32(),
+  pointsCrafted: t.u64(),
+  // Points crafted within the current tier (resets conceptually at each tier boundary).
+  pointsCraftedInTier: t.u64(),
+  // Total size of the current tier (= U32_MAX sentinel for the unbounded last tier).
+  pointsInCurrentTier: t.u32(),
+  // True when the current tier is the last (unbounded) one.
+  isUnbounded: t.bool(),
+});
+
+export const myClassCraftTier = spacetimedb.view(
+  { name: 'my_class_craft_tier', public: true },
+  t.array(ClassCraftTierType),
+  ctx => {
+    const s = ctx.db.session.identity.find(ctx.sender);
+    if (s === null) return [];
+
+    const result: any[] = [];
+    // Iterate over the known (bounded) set of class IDs — NOT a table .iter().
+    for (const classId of CLASS_TREE_IDS) {
+      // Progress row (index lookup)
+      let pointsCrafted = 0n;
+      for (const r of ctx.db.playerClassCraftProgress.player_class_craft_progress_username.filter(s.username)) {
+        if (r.classId === classId) { pointsCrafted = r.pointsCrafted; break; }
+      }
+
+      // Build unique tier map: tierIndex → pointsInTier (index lookup)
+      const tierMap = new Map<number, number>();
+      for (const row of ctx.db.classCraftCost.class_craft_cost_class_id.filter(classId)) {
+        if (!tierMap.has(row.tierIndex)) tierMap.set(row.tierIndex, row.pointsInTier);
+      }
+      if (tierMap.size === 0) continue;
+
+      const sortedTiers = [...tierMap.entries()].sort(([a], [b]) => a - b);
+      let currentTierIndex = sortedTiers[sortedTiers.length - 1][0];
+      let pointsCraftedInTier = pointsCrafted; // fallback: all points in last tier
+      let pointsInCurrentTier = sortedTiers[sortedTiers.length - 1][1];
+      let cumulative = 0n;
+
+      for (let i = 0; i < sortedTiers.length; i++) {
+        const [ti, pit] = sortedTiers[i];
+        const tierCap = BigInt(pit);
+        if (cumulative + tierCap > pointsCrafted) {
+          currentTierIndex = ti;
+          pointsInCurrentTier = pit;
+          pointsCraftedInTier = pointsCrafted - cumulative;
+          break;
+        }
+        cumulative += tierCap;
+      }
+
+      const isUnbounded = pointsInCurrentTier === INFINITE_TIER_POINTS;
+      result.push({ classId, currentTierIndex, pointsCrafted, pointsCraftedInTier, pointsInCurrentTier, isUnbounded });
+    }
+
+    return result;
+  }
+);
+
+// ---------- craftClassPoint reducer ----------
+
+// Spends class-specific resources to add one point to the player's class pool.
+// Tier is computed server-side from pointsCrafted so costs auto-escalate with
+// no client involvement.
+export const craftClassPoint = spacetimedb.reducer(
+  { classId: t.string() },
+  (ctx, { classId }) => {
+    const s = ctx.db.session.identity.find(ctx.sender);
+    if (s === null) throw new SenderError('Not signed in');
+    if (!CLASS_TREE_IDS.has(classId)) throw new SenderError(`Unknown class: ${classId}`);
+    if (!hasUnlockedClass(ctx, s.username, classId)) {
+      throw new SenderError(`Class "${classId}" is not unlocked`);
+    }
+
+    // Fetch crafted-points total (index lookup)
+    let progressRow = null;
+    for (const r of ctx.db.playerClassCraftProgress.player_class_craft_progress_username.filter(s.username)) {
+      if (r.classId === classId) { progressRow = r; break; }
+    }
+    const pointsCrafted: bigint = progressRow !== null ? progressRow.pointsCrafted : 0n;
+
+    // Walk classCraftCost rows sorted explicitly by tierIndex to find current tier.
+    const tierMap = new Map<number, number>();
+    for (const row of ctx.db.classCraftCost.class_craft_cost_class_id.filter(classId)) {
+      if (!tierMap.has(row.tierIndex)) tierMap.set(row.tierIndex, row.pointsInTier);
+    }
+    if (tierMap.size === 0) throw new SenderError(`No cost configuration for class "${classId}"`);
+
+    const sortedTiers = [...tierMap.entries()].sort(([a], [b]) => a - b);
+    let currentTierIndex = sortedTiers[sortedTiers.length - 1][0]; // default to last tier
+    let cumulative = 0n;
+    for (const [ti, pit] of sortedTiers) {
+      if (cumulative + BigInt(pit) > pointsCrafted) {
+        currentTierIndex = ti;
+        break;
+      }
+      cumulative += BigInt(pit);
+    }
+
+    // Collect all cost rows for the current tier (one per required resource)
+    const costRows: any[] = [];
+    for (const row of ctx.db.classCraftCost.class_craft_cost_class_id.filter(classId)) {
+      if (row.tierIndex === currentTierIndex) costRows.push(row);
+    }
+    if (costRows.length === 0) {
+      throw new SenderError(`No cost rows for class "${classId}" tier ${currentTierIndex}`);
+    }
+
+    // Validate: player has all required resources before any mutation
+    for (const costRow of costRows) {
+      const required: bigint = costRow.amountPerPoint;
+      let balance = 0n;
+      if (costRow.resourceId === 'scrap') {
+        balance = ctx.db.playerState.username.find(s.username)?.scrap ?? 0n;
+      } else {
+        for (const r of ctx.db.playerResource.player_resource_username.filter(s.username)) {
+          if (r.resourceId === costRow.resourceId) { balance = r.amount; break; }
+        }
+      }
+      if (balance < required) {
+        throw new SenderError(
+          `Not enough ${costRow.resourceId}: need ${required.toString()}, have ${balance.toString()}`
+        );
+      }
+    }
+
+    // ─── ALL PRECONDITIONS PASSED — begin mutations ───
+
+    // Deduct resources
+    for (const costRow of costRows) {
+      const cost: bigint = costRow.amountPerPoint;
+      if (costRow.resourceId === 'scrap') {
+        const ps = ctx.db.playerState.username.find(s.username)!;
+        ctx.db.playerState.username.update({ ...ps, scrap: ps.scrap - cost, updatedAt: ctx.timestamp });
+      } else {
+        for (const r of ctx.db.playerResource.player_resource_username.filter(s.username)) {
+          if (r.resourceId === costRow.resourceId) {
+            ctx.db.playerResource.id.update({ ...r, amount: r.amount - cost });
+            break;
+          }
+        }
+      }
+    }
+
+    // Increment pointsCrafted
+    if (progressRow !== null) {
+      ctx.db.playerClassCraftProgress.id.update({
+        ...progressRow,
+        pointsCrafted: progressRow.pointsCrafted + 1n,
+        lastCraftedAt: ctx.timestamp,
+      });
+    } else {
+      ctx.db.playerClassCraftProgress.insert({
+        id: 0n,
+        username: s.username,
+        classId,
+        pointsCrafted: 1n,
+        lastCraftedAt: ctx.timestamp,
+      });
+    }
+
+    // Award 1 skill point to the class pool
+    const treeDef = ctx.db.skillTreeDefinition.treeId.find(classId);
+    if (treeDef === null) throw new SenderError(`Tree definition missing for "${classId}"`);
+    addPoolBalance(ctx, s.username, treeDef.pointPoolId, 1);
+  }
+);
+
+// ---------- refundCapstoneChoice reducer ----------
+
+// Refunds the player's capstone choice in a given branch, allowing them to
+// re-pick. Costs 10× the class's tier-0 primary resource per the spec.
+export const refundCapstoneChoice = spacetimedb.reducer(
+  { classId: t.string(), capstoneBranchId: t.string() },
+  (ctx, { classId, capstoneBranchId }) => {
+    const s = ctx.db.session.identity.find(ctx.sender);
+    if (s === null) throw new SenderError('Not signed in');
+
+    // 1. Find the player's capstone choice for this branch
+    let choiceRow = null;
+    for (const r of ctx.db.playerCapstoneChoice.player_capstone_choice_username.filter(s.username)) {
+      if (r.capstoneBranchId === capstoneBranchId) { choiceRow = r; break; }
+    }
+    if (choiceRow === null) {
+      throw new SenderError(`No capstone choice found for branch "${capstoneBranchId}"`);
+    }
+
+    // 2. Not in minigame or battle
+    if (isInMinigameOrBattle(ctx, s.username)) {
+      throw new SenderError('Cannot refund capstone choice during a minigame.');
+    }
+
+    // 3. Compute respec cost: 10× the tier-0 primary resource amount
+    const primaryCostRow = findPrimarySwapCostRow(ctx, classId);
+    if (primaryCostRow === null) {
+      throw new SenderError(`No cost configuration for class "${classId}"`);
+    }
+    const respecCost: bigint = primaryCostRow.amountPerPoint * 10n;
+
+    // 4. Validate the player can afford the respec cost
+    let balance = 0n;
+    if (primaryCostRow.resourceId === 'scrap') {
+      balance = ctx.db.playerState.username.find(s.username)?.scrap ?? 0n;
+    } else {
+      for (const r of ctx.db.playerResource.player_resource_username.filter(s.username)) {
+        if (r.resourceId === primaryCostRow.resourceId) { balance = r.amount; break; }
+      }
+    }
+    if (balance < respecCost) {
+      throw new SenderError(
+        `Respec requires ${respecCost.toString()} ${primaryCostRow.resourceId}, you have ${balance.toString()}`
+      );
+    }
+
+    // 5. Get the chosen skill definition (for costSkillPoints refund)
+    const chosenSkillDef = ctx.db.skillDefinition.skillId.find(choiceRow.chosenSkillId);
+    if (chosenSkillDef === null) {
+      throw new SenderError(`Skill definition not found for "${choiceRow.chosenSkillId}"`);
+    }
+
+    // ─── ALL PRECONDITIONS PASSED — begin mutations ───
+
+    // 6. Deduct respec cost
+    if (primaryCostRow.resourceId === 'scrap') {
+      const ps = ctx.db.playerState.username.find(s.username)!;
+      ctx.db.playerState.username.update({ ...ps, scrap: ps.scrap - respecCost, updatedAt: ctx.timestamp });
+    } else {
+      for (const r of ctx.db.playerResource.player_resource_username.filter(s.username)) {
+        if (r.resourceId === primaryCostRow.resourceId) {
+          ctx.db.playerResource.id.update({ ...r, amount: r.amount - respecCost });
+          break;
+        }
+      }
+    }
+
+    // 7. Refund costSkillPoints to the class pool balance
+    const treeDef = ctx.db.skillTreeDefinition.treeId.find(classId);
+    if (treeDef !== null) {
+      addPoolBalance(ctx, s.username, treeDef.pointPoolId, chosenSkillDef.costSkillPoints);
+    }
+
+    // 8. Zero out the playerSkill row for the chosen capstone (level → 0)
+    for (const r of ctx.db.playerSkill.player_skill_username.filter(s.username)) {
+      if (r.skillId === choiceRow.chosenSkillId) {
+        ctx.db.playerSkill.id.update({ ...r, level: 0 });
+        break;
+      }
+    }
+
+    // 9. Clear stat + capability sources for this capstone node.
+    // Only matters if the class is currently equipped; if not, no source rows exist.
+    const equipped = ctx.db.playerEquippedClass.username.find(s.username);
+    if (equipped !== null && equipped.classId === classId) {
+      const nodePrefix = `${s.username}:class:${classId}:${choiceRow.chosenSkillId}:`;
+      clearStatSourcesByPrefix(ctx, s.username, nodePrefix);
+      clearCapabilitiesByPrefix(ctx, s.username, nodePrefix);
+    }
+
+    // 10. Delete the capstone choice row — all three options are free again
+    ctx.db.playerCapstoneChoice.id.delete(choiceRow.id);
+  }
+);
 
 // ---------- Seed data ----------
 
@@ -462,8 +936,11 @@ const CLASS_POOL_SEEDS = [
 ];
 
 // Unlock nodes in the Intermediate tree.
-// Gated by stat totals: maxing both minor (4×1) and major (4×3) = 16 total stat.
-// prerequisiteStatId + prerequisiteStatValue express this gate in upgradeSkill.
+// Each is the third step on its corresponding stat-chain diagonal — Vigor →
+// NE corner becomes Brute, Power → SE → Striker, Focus → SW → Generalist,
+// Fortune → NW → Wanderer. The skill-prereq edge from `<stat>_major` lvl 4
+// puts them visually on the chain; the redundant stat gate (16) is kept as
+// a defensive check should stats ever come from outside skill nodes.
 interface UnlockNodeSeed {
   skillId: string;
   name: string;
@@ -471,48 +948,62 @@ interface UnlockNodeSeed {
   positionX: number;
   positionY: number;
   sortOrder: number;
+  prerequisiteSkillId: string;   // e.g. 'vigor_major'
+  prerequisiteLevel: number;     // 4 (max minor + major chain)
   prerequisiteStatId: string;
   prerequisiteStatValue: number;
 }
+
+// Pinned to the four corners of the stat-X. STEP_3 keeps these in sync with
+// the diagonal pitch used in skill_tree.ts (3rd step out from centre).
+const UNLOCK_STEP = 130 * 3;
 
 const UNLOCK_NODE_SEEDS: UnlockNodeSeed[] = [
   {
     skillId: 'unlock_brute',
     name: 'Unlock Brute',
     description: 'Reveals the Brute class tree. Spend Metal + Fabric to craft Brute points.',
-    positionX: 0,
-    positionY: 1600,
+    positionX: UNLOCK_STEP,
+    positionY: -UNLOCK_STEP, // NE corner — end of Vigor chain
     sortOrder: 200,
+    prerequisiteSkillId: 'vigor_major',
+    prerequisiteLevel: 4,
     prerequisiteStatId: 'vigor',
-    prerequisiteStatValue: 16,
-  },
-  {
-    skillId: 'unlock_generalist',
-    name: 'Unlock Generalist',
-    description: 'Reveals the Generalist class tree. Spend a little of every resource to craft Generalist points.',
-    positionX: 0,
-    positionY: 1800,
-    sortOrder: 201,
-    prerequisiteStatId: 'focus',
     prerequisiteStatValue: 16,
   },
   {
     skillId: 'unlock_striker',
     name: 'Unlock Striker',
     description: 'Reveals the Striker class tree. Spend Parts + Food to craft Striker points.',
-    positionX: 200,
-    positionY: 1600,
-    sortOrder: 202,
+    positionX: UNLOCK_STEP,
+    positionY: UNLOCK_STEP, // SE corner — end of Power chain
+    sortOrder: 201,
+    prerequisiteSkillId: 'power_major',
+    prerequisiteLevel: 4,
     prerequisiteStatId: 'power',
+    prerequisiteStatValue: 16,
+  },
+  {
+    skillId: 'unlock_generalist',
+    name: 'Unlock Generalist',
+    description: 'Reveals the Generalist class tree. Spend a little of every resource to craft Generalist points.',
+    positionX: -UNLOCK_STEP,
+    positionY: UNLOCK_STEP, // SW corner — end of Focus chain
+    sortOrder: 202,
+    prerequisiteSkillId: 'focus_major',
+    prerequisiteLevel: 4,
+    prerequisiteStatId: 'focus',
     prerequisiteStatValue: 16,
   },
   {
     skillId: 'unlock_wanderer',
     name: 'Unlock Wanderer',
     description: 'Reveals the Wanderer class tree. Spend Medicine + Scrap to craft Wanderer points.',
-    positionX: -200,
-    positionY: 1600,
+    positionX: -UNLOCK_STEP,
+    positionY: -UNLOCK_STEP, // NW corner — end of Fortune chain
     sortOrder: 203,
+    prerequisiteSkillId: 'fortune_major',
+    prerequisiteLevel: 4,
     prerequisiteStatId: 'fortune',
     prerequisiteStatValue: 16,
   },
@@ -531,32 +1022,37 @@ interface CraftCostSeed {
 function buildCraftCostSeeds(): CraftCostSeed[] {
   const seeds: CraftCostSeed[] = [];
 
-  // Brute: Metal + Fabric, tier-0 base 50 each
-  const bruteBase: [string, bigint][] = [['metal', 50n], ['fabric', 50n]];
+  // Non-scrap costs cut 5x from the original click-economy values to match the
+  // new structure-based income (Refinery ~120 parts/hr, Smelter ~60 metal/hr,
+  // Workbench fabric gated upstream, Garden multiplies food, minigame meds).
+  // Scrap cost on Wanderer left untouched — Scavenge income is unchanged.
+
+  // Brute: Metal + Fabric, tier-0 base 10 each
+  const bruteBase: [string, bigint][] = [['metal', 10n], ['fabric', 10n]];
   for (const [resourceId, base] of bruteBase) {
     seeds.push({ classId: 'brute', tierIndex: 0, pointsInTier: 10, resourceId, amountPerPoint: base });
     seeds.push({ classId: 'brute', tierIndex: 1, pointsInTier: 10, resourceId, amountPerPoint: base * 10n });
     seeds.push({ classId: 'brute', tierIndex: 2, pointsInTier: U32_MAX, resourceId, amountPerPoint: base * 100n });
   }
 
-  // Generalist: 10 of each of all 6 resources
+  // Generalist: 2 of each of all 6 resources
   const generalistResources: string[] = ['scrap', 'parts', 'metal', 'fabric', 'food', 'medicine'];
   for (const resourceId of generalistResources) {
-    seeds.push({ classId: 'generalist', tierIndex: 0, pointsInTier: 10, resourceId, amountPerPoint: 10n });
-    seeds.push({ classId: 'generalist', tierIndex: 1, pointsInTier: 10, resourceId, amountPerPoint: 100n });
-    seeds.push({ classId: 'generalist', tierIndex: 2, pointsInTier: U32_MAX, resourceId, amountPerPoint: 1000n });
+    seeds.push({ classId: 'generalist', tierIndex: 0, pointsInTier: 10, resourceId, amountPerPoint: 2n });
+    seeds.push({ classId: 'generalist', tierIndex: 1, pointsInTier: 10, resourceId, amountPerPoint: 20n });
+    seeds.push({ classId: 'generalist', tierIndex: 2, pointsInTier: U32_MAX, resourceId, amountPerPoint: 200n });
   }
 
-  // Striker: Parts + Food, tier-0 base 50 each
-  const strikerBase: [string, bigint][] = [['parts', 50n], ['food', 50n]];
+  // Striker: Parts + Food, tier-0 base 10 each
+  const strikerBase: [string, bigint][] = [['parts', 10n], ['food', 10n]];
   for (const [resourceId, base] of strikerBase) {
     seeds.push({ classId: 'striker', tierIndex: 0, pointsInTier: 10, resourceId, amountPerPoint: base });
     seeds.push({ classId: 'striker', tierIndex: 1, pointsInTier: 10, resourceId, amountPerPoint: base * 10n });
     seeds.push({ classId: 'striker', tierIndex: 2, pointsInTier: U32_MAX, resourceId, amountPerPoint: base * 100n });
   }
 
-  // Wanderer: Medicine (50) + Scrap (250)
-  const wandererBase: [string, bigint][] = [['medicine', 50n], ['scrap', 250n]];
+  // Wanderer: Medicine (10, cut from 50) + Scrap (250, unchanged)
+  const wandererBase: [string, bigint][] = [['medicine', 10n], ['scrap', 250n]];
   for (const [resourceId, base] of wandererBase) {
     seeds.push({ classId: 'wanderer', tierIndex: 0, pointsInTier: 10, resourceId, amountPerPoint: base });
     seeds.push({ classId: 'wanderer', tierIndex: 1, pointsInTier: 10, resourceId, amountPerPoint: base * 10n });
@@ -568,8 +1064,801 @@ function buildCraftCostSeeds(): CraftCostSeed[] {
 
 const CRAFT_COST_SEEDS = buildCraftCostSeeds();
 
+// ---------- Class tree node seeds ----------
+
+interface ClassNodeSeed {
+  skillId: string;
+  name: string;
+  description: string;
+  maxLevel: number;
+  prerequisiteSkillId: string;
+  prerequisiteLevel: number;
+  costSkillPoints: number;
+  positionX: number;
+  positionY: number;
+  sortOrder: number;
+  treeId: string;
+  capstoneBranchId: string;
+  infiniteScaling: boolean;
+  prerequisiteStatId: string;
+  prerequisiteStatValue: number;
+}
+
+interface ClassNodeEffectSeed {
+  skillId: string;
+  effectKey: string;
+  amountPerLevel: number;
+}
+
+// Brute tree nodes (treeId: 'brute')
+const BRUTE_NODE_SEEDS: ClassNodeSeed[] = [
+  {
+    skillId: 'parallel_frame_1',
+    name: 'Parallel Frame I',
+    description: 'Unlock a second automation slot for parallel resource gathering.',
+    maxLevel: 1,
+    prerequisiteSkillId: '',
+    prerequisiteLevel: 0,
+    costSkillPoints: 1,
+    positionX: 0,
+    positionY: 0,
+    sortOrder: 0,
+    treeId: 'brute',
+    capstoneBranchId: '',
+    infiniteScaling: false,
+    prerequisiteStatId: '',
+    prerequisiteStatValue: 0,
+  },
+  {
+    skillId: 'parallel_frame_2',
+    name: 'Parallel Frame II',
+    description: 'Unlock a third automation slot.',
+    maxLevel: 1,
+    prerequisiteSkillId: 'parallel_frame_1',
+    prerequisiteLevel: 1,
+    costSkillPoints: 2,
+    positionX: 0,
+    positionY: 150,
+    sortOrder: 1,
+    treeId: 'brute',
+    capstoneBranchId: '',
+    infiniteScaling: false,
+    prerequisiteStatId: '',
+    prerequisiteStatValue: 0,
+  },
+  {
+    skillId: 'parallel_frame_3',
+    name: 'Parallel Frame III',
+    description: 'Unlock a fourth automation slot.',
+    maxLevel: 1,
+    prerequisiteSkillId: 'parallel_frame_2',
+    prerequisiteLevel: 1,
+    costSkillPoints: 3,
+    positionX: 0,
+    positionY: 300,
+    sortOrder: 2,
+    treeId: 'brute',
+    capstoneBranchId: '',
+    infiniteScaling: false,
+    prerequisiteStatId: '',
+    prerequisiteStatValue: 0,
+  },
+  {
+    skillId: 'steady_hands',
+    name: 'Phalanx Drill',
+    description: 'Each other active automation slot grants +5% yield to all your automation ticks. Solo slots do nothing — invest in Parallel Frame for the bonus to bite.',
+    maxLevel: 1,
+    prerequisiteSkillId: 'parallel_frame_1',
+    prerequisiteLevel: 1,
+    costSkillPoints: 1,
+    positionX: 250,
+    positionY: 100,
+    sortOrder: 3,
+    treeId: 'brute',
+    capstoneBranchId: '',
+    infiniteScaling: false,
+    prerequisiteStatId: '',
+    prerequisiteStatValue: 0,
+  },
+  {
+    skillId: 'heavy_frame',
+    name: 'Heavy Frame',
+    description: 'Manual clicks count as 2 progress ticks toward the slotted activity.',
+    maxLevel: 1,
+    prerequisiteSkillId: 'parallel_frame_1',
+    prerequisiteLevel: 1,
+    costSkillPoints: 2,
+    positionX: -250,
+    positionY: 100,
+    sortOrder: 4,
+    treeId: 'brute',
+    capstoneBranchId: '',
+    infiniteScaling: false,
+    prerequisiteStatId: '',
+    prerequisiteStatValue: 0,
+  },
+  {
+    skillId: 'endurance_infinite',
+    name: 'Endurance',
+    description: 'Each level grants +1% automation yield (stacks indefinitely).',
+    maxLevel: 1,
+    prerequisiteSkillId: 'parallel_frame_1',
+    prerequisiteLevel: 1,
+    costSkillPoints: 1,
+    positionX: 250,
+    positionY: 0,
+    sortOrder: 5,
+    treeId: 'brute',
+    capstoneBranchId: '',
+    infiniteScaling: true,
+    prerequisiteStatId: '',
+    prerequisiteStatValue: 0,
+  },
+  {
+    skillId: 'vigor_growth',
+    name: 'Adamant',
+    description: 'Each level grants +1 Vigor (stacks indefinitely). Path to deeper Brute mastery.',
+    maxLevel: 1,
+    prerequisiteSkillId: 'parallel_frame_1',
+    prerequisiteLevel: 1,
+    costSkillPoints: 1,
+    positionX: 350,
+    positionY: 100,
+    sortOrder: 6,
+    treeId: 'brute',
+    capstoneBranchId: '',
+    infiniteScaling: true,
+    prerequisiteStatId: '',
+    prerequisiteStatValue: 0,
+  },
+  // Capstone branch: brute_cap — gated at Vigor 30
+  {
+    skillId: 'forge_heart',
+    name: 'Forge Heart',
+    description: 'Automation slots tick at 1.5× yield while offline.',
+    maxLevel: 1,
+    prerequisiteSkillId: '',
+    prerequisiteLevel: 0,
+    costSkillPoints: 5,
+    positionX: -150,
+    positionY: 450,
+    sortOrder: 10,
+    treeId: 'brute',
+    capstoneBranchId: 'brute_cap',
+    infiniteScaling: false,
+    prerequisiteStatId: 'vigor',
+    prerequisiteStatValue: 30,
+  },
+  {
+    skillId: 'iron_will',
+    name: 'Iron Will',
+    description: 'When you take damage in a Defensive Battle, 25% chance to gain a ward charge that absorbs the next incoming hit.',
+    maxLevel: 1,
+    prerequisiteSkillId: '',
+    prerequisiteLevel: 0,
+    costSkillPoints: 5,
+    positionX: 0,
+    positionY: 480,
+    sortOrder: 11,
+    treeId: 'brute',
+    capstoneBranchId: 'brute_cap',
+    infiniteScaling: false,
+    prerequisiteStatId: 'vigor',
+    prerequisiteStatValue: 30,
+  },
+  {
+    skillId: 'bulwark',
+    name: 'Bulwark',
+    description: 'Phalanx Drill effect deepens: each other active automation slot grants an additional +20% yield (total +25% per sibling slot with both nodes). At max slots, every tick gets +75% from synergy alone.',
+    maxLevel: 1,
+    prerequisiteSkillId: '',
+    prerequisiteLevel: 0,
+    costSkillPoints: 5,
+    positionX: 150,
+    positionY: 450,
+    sortOrder: 12,
+    treeId: 'brute',
+    capstoneBranchId: 'brute_cap',
+    infiniteScaling: false,
+    prerequisiteStatId: 'vigor',
+    prerequisiteStatValue: 30,
+  },
+];
+
+const BRUTE_EFFECT_SEEDS: ClassNodeEffectSeed[] = [
+  { skillId: 'parallel_frame_1', effectKey: CAPABILITY_KEYS.AUTOMATION_SLOT, amountPerLevel: 1 },
+  { skillId: 'parallel_frame_2', effectKey: CAPABILITY_KEYS.AUTOMATION_SLOT, amountPerLevel: 1 },
+  { skillId: 'parallel_frame_3', effectKey: CAPABILITY_KEYS.AUTOMATION_SLOT, amountPerLevel: 1 },
+  { skillId: 'steady_hands', effectKey: CAPABILITY_KEYS.AUTOMATION_PHALANX_PCT_BP, amountPerLevel: 500 },
+  { skillId: 'heavy_frame', effectKey: CAPABILITY_KEYS.MANUAL_CLICK_TICK_COUNT, amountPerLevel: 1 },
+  { skillId: 'endurance_infinite', effectKey: CAPABILITY_KEYS.AUTOMATION_YIELD_PCT_BP, amountPerLevel: 100 },
+  { skillId: 'forge_heart', effectKey: CAPABILITY_KEYS.OFFLINE_AUTOMATION_MULTIPLIER_BP, amountPerLevel: 5000 },
+  { skillId: 'iron_will', effectKey: CAPABILITY_KEYS.COMBAT_DAMAGE_TAKEN_WARD_BP, amountPerLevel: 2500 },
+  { skillId: 'bulwark', effectKey: CAPABILITY_KEYS.AUTOMATION_PHALANX_PCT_BP, amountPerLevel: 2000 },
+];
+
+// Generalist tree nodes (treeId: 'generalist')
+const GENERALIST_NODE_SEEDS: ClassNodeSeed[] = [
+  {
+    skillId: 'wide_net_1',
+    name: 'Wide Net I',
+    description: 'Each automation tick and manual click distributes 2% of yield to all other unlocked resources.',
+    maxLevel: 1,
+    prerequisiteSkillId: '',
+    prerequisiteLevel: 0,
+    costSkillPoints: 1,
+    positionX: 0,
+    positionY: 0,
+    sortOrder: 0,
+    treeId: 'generalist',
+    capstoneBranchId: '',
+    infiniteScaling: false,
+    prerequisiteStatId: '',
+    prerequisiteStatValue: 0,
+  },
+  {
+    skillId: 'wide_net_2',
+    name: 'Wide Net II',
+    description: 'Wide Net expanded — total distribution rises to 5%.',
+    maxLevel: 1,
+    prerequisiteSkillId: 'wide_net_1',
+    prerequisiteLevel: 1,
+    costSkillPoints: 2,
+    positionX: 0,
+    positionY: 150,
+    sortOrder: 1,
+    treeId: 'generalist',
+    capstoneBranchId: '',
+    infiniteScaling: false,
+    prerequisiteStatId: '',
+    prerequisiteStatValue: 0,
+  },
+  {
+    skillId: 'surveyor',
+    name: 'Surveyor',
+    description: 'Reduce armory upgrade costs by 20%.',
+    maxLevel: 1,
+    prerequisiteSkillId: 'wide_net_1',
+    prerequisiteLevel: 1,
+    costSkillPoints: 2,
+    positionX: -250,
+    positionY: 100,
+    sortOrder: 2,
+    treeId: 'generalist',
+    capstoneBranchId: '',
+    infiniteScaling: false,
+    prerequisiteStatId: '',
+    prerequisiteStatValue: 0,
+  },
+  {
+    skillId: 'crafters_eye',
+    name: "Crafter's Eye",
+    description: 'Crafted items roll with a 10% bias toward the upper end of affix ranges.',
+    maxLevel: 1,
+    prerequisiteSkillId: 'wide_net_1',
+    prerequisiteLevel: 1,
+    costSkillPoints: 2,
+    positionX: 250,
+    positionY: 100,
+    sortOrder: 3,
+    treeId: 'generalist',
+    capstoneBranchId: '',
+    infiniteScaling: false,
+    prerequisiteStatId: '',
+    prerequisiteStatValue: 0,
+  },
+  {
+    skillId: 'tactician',
+    name: 'Tactician',
+    description: 'Draw one extra card at the start of each Defensive Battle turn.',
+    maxLevel: 1,
+    prerequisiteSkillId: 'wide_net_2',
+    prerequisiteLevel: 1,
+    costSkillPoints: 2,
+    positionX: 0,
+    positionY: 300,
+    sortOrder: 4,
+    treeId: 'generalist',
+    capstoneBranchId: '',
+    infiniteScaling: false,
+    prerequisiteStatId: '',
+    prerequisiteStatValue: 0,
+  },
+  {
+    skillId: 'polymath_infinite',
+    name: 'Polymath',
+    description: 'Each level grants +0.5% additional wide-net distribution (stacks indefinitely).',
+    maxLevel: 1,
+    prerequisiteSkillId: 'wide_net_2',
+    prerequisiteLevel: 1,
+    costSkillPoints: 1,
+    positionX: 250,
+    positionY: 250,
+    sortOrder: 5,
+    treeId: 'generalist',
+    capstoneBranchId: '',
+    infiniteScaling: true,
+    prerequisiteStatId: '',
+    prerequisiteStatValue: 0,
+  },
+  {
+    skillId: 'focus_growth',
+    name: 'Mastery',
+    description: 'Each level grants +1 Focus (stacks indefinitely). Path to deeper Generalist mastery.',
+    maxLevel: 1,
+    prerequisiteSkillId: 'wide_net_2',
+    prerequisiteLevel: 1,
+    costSkillPoints: 1,
+    positionX: 350,
+    positionY: 350,
+    sortOrder: 6,
+    treeId: 'generalist',
+    capstoneBranchId: '',
+    infiniteScaling: true,
+    prerequisiteStatId: '',
+    prerequisiteStatValue: 0,
+  },
+  // Capstone branch: generalist_cap — gated at Focus 30
+  {
+    skillId: 'hidden_caches',
+    name: 'Hidden Caches',
+    description: 'Wide-net yield occasionally produces a tier above your highest unlocked resource.',
+    maxLevel: 1,
+    prerequisiteSkillId: '',
+    prerequisiteLevel: 0,
+    costSkillPoints: 5,
+    positionX: -150,
+    positionY: 450,
+    sortOrder: 10,
+    treeId: 'generalist',
+    capstoneBranchId: 'generalist_cap',
+    infiniteScaling: false,
+    prerequisiteStatId: 'focus',
+    prerequisiteStatValue: 30,
+  },
+  {
+    skillId: 'master_crafter',
+    name: 'Master Crafter',
+    description: 'Items you craft roll one extra optional affix.',
+    maxLevel: 1,
+    prerequisiteSkillId: '',
+    prerequisiteLevel: 0,
+    costSkillPoints: 5,
+    positionX: 0,
+    positionY: 480,
+    sortOrder: 11,
+    treeId: 'generalist',
+    capstoneBranchId: 'generalist_cap',
+    infiniteScaling: false,
+    prerequisiteStatId: 'focus',
+    prerequisiteStatValue: 30,
+  },
+  {
+    skillId: 'quartermaster',
+    name: 'Quartermaster',
+    description: 'Armory upgrade costs reduced by an additional 30% (stacks with Surveyor).',
+    maxLevel: 1,
+    prerequisiteSkillId: '',
+    prerequisiteLevel: 0,
+    costSkillPoints: 5,
+    positionX: 150,
+    positionY: 450,
+    sortOrder: 12,
+    treeId: 'generalist',
+    capstoneBranchId: 'generalist_cap',
+    infiniteScaling: false,
+    prerequisiteStatId: 'focus',
+    prerequisiteStatValue: 30,
+  },
+];
+
+const GENERALIST_EFFECT_SEEDS: ClassNodeEffectSeed[] = [
+  { skillId: 'wide_net_1', effectKey: CAPABILITY_KEYS.WIDE_NET_PCT_BP, amountPerLevel: 200 },
+  { skillId: 'wide_net_2', effectKey: CAPABILITY_KEYS.WIDE_NET_PCT_BP, amountPerLevel: 300 },
+  { skillId: 'surveyor', effectKey: CAPABILITY_KEYS.ARMORY_COST_REDUCTION_BP, amountPerLevel: 2000 },
+  { skillId: 'crafters_eye', effectKey: CAPABILITY_KEYS.CRAFT_AFFIX_BIAS_BP, amountPerLevel: 1000 },
+  { skillId: 'tactician', effectKey: CAPABILITY_KEYS.COMBAT_HAND_SIZE_BONUS, amountPerLevel: 1 },
+  { skillId: 'polymath_infinite', effectKey: CAPABILITY_KEYS.WIDE_NET_PCT_BP, amountPerLevel: 50 },
+  { skillId: 'hidden_caches', effectKey: CAPABILITY_KEYS.WIDE_NET_OVERFLOW_BP, amountPerLevel: 100 },
+  { skillId: 'master_crafter', effectKey: CAPABILITY_KEYS.CRAFT_EXTRA_OPTIONAL_COUNT, amountPerLevel: 1 },
+  { skillId: 'quartermaster', effectKey: CAPABILITY_KEYS.ARMORY_COST_REDUCTION_BP, amountPerLevel: 3000 },
+];
+
+// Striker tree nodes (treeId: 'striker')
+const STRIKER_NODE_SEEDS: ClassNodeSeed[] = [
+  {
+    skillId: 'heavy_hand_1',
+    name: 'Heavy Hand I',
+    description: 'Manual clicks yield 25% more resources.',
+    maxLevel: 1,
+    prerequisiteSkillId: '',
+    prerequisiteLevel: 0,
+    costSkillPoints: 1,
+    positionX: 0,
+    positionY: 0,
+    sortOrder: 0,
+    treeId: 'striker',
+    capstoneBranchId: '',
+    infiniteScaling: false,
+    prerequisiteStatId: '',
+    prerequisiteStatValue: 0,
+  },
+  {
+    skillId: 'heavy_hand_2',
+    name: 'Heavy Hand II',
+    description: 'Manual click yield bonus grows to +50% total.',
+    maxLevel: 1,
+    prerequisiteSkillId: 'heavy_hand_1',
+    prerequisiteLevel: 1,
+    costSkillPoints: 2,
+    positionX: 0,
+    positionY: 150,
+    sortOrder: 1,
+    treeId: 'striker',
+    capstoneBranchId: '',
+    infiniteScaling: false,
+    prerequisiteStatId: '',
+    prerequisiteStatValue: 0,
+  },
+  {
+    skillId: 'combo',
+    name: 'Combo',
+    description: 'Consecutive clicks within 3s stack +5% yield per hit, up to +50%. Decays on pause.',
+    maxLevel: 1,
+    prerequisiteSkillId: 'heavy_hand_1',
+    prerequisiteLevel: 1,
+    costSkillPoints: 2,
+    positionX: -250,
+    positionY: 100,
+    sortOrder: 2,
+    treeId: 'striker',
+    capstoneBranchId: '',
+    infiniteScaling: false,
+    prerequisiteStatId: '',
+    prerequisiteStatValue: 0,
+  },
+  {
+    skillId: 'quickstep',
+    name: 'Quickstep',
+    description: 'Manual clicks contribute progress to every slotted automation simultaneously.',
+    maxLevel: 1,
+    prerequisiteSkillId: 'combo',
+    prerequisiteLevel: 1,
+    costSkillPoints: 2,
+    positionX: -250,
+    positionY: 250,
+    sortOrder: 3,
+    treeId: 'striker',
+    capstoneBranchId: '',
+    infiniteScaling: false,
+    prerequisiteStatId: '',
+    prerequisiteStatValue: 0,
+  },
+  {
+    skillId: 'cleaver',
+    name: 'Cleaver',
+    description: 'Damage actions in Defensive Battle hit one additional target.',
+    maxLevel: 1,
+    prerequisiteSkillId: 'heavy_hand_2',
+    prerequisiteLevel: 1,
+    costSkillPoints: 2,
+    positionX: 250,
+    positionY: 200,
+    sortOrder: 4,
+    treeId: 'striker',
+    capstoneBranchId: '',
+    infiniteScaling: false,
+    prerequisiteStatId: '',
+    prerequisiteStatValue: 0,
+  },
+  {
+    skillId: 'striker_infinite',
+    name: 'Striker',
+    description: 'Each level grants +1% additional manual click yield (stacks indefinitely).',
+    maxLevel: 1,
+    prerequisiteSkillId: 'heavy_hand_2',
+    prerequisiteLevel: 1,
+    costSkillPoints: 1,
+    positionX: 250,
+    positionY: 0,
+    sortOrder: 5,
+    treeId: 'striker',
+    capstoneBranchId: '',
+    infiniteScaling: true,
+    prerequisiteStatId: '',
+    prerequisiteStatValue: 0,
+  },
+  {
+    skillId: 'power_growth',
+    name: 'Crucible',
+    description: 'Each level grants +1 Power (stacks indefinitely). Path to deeper Striker mastery.',
+    maxLevel: 1,
+    prerequisiteSkillId: 'heavy_hand_2',
+    prerequisiteLevel: 1,
+    costSkillPoints: 1,
+    positionX: 350,
+    positionY: 100,
+    sortOrder: 6,
+    treeId: 'striker',
+    capstoneBranchId: '',
+    infiniteScaling: true,
+    prerequisiteStatId: '',
+    prerequisiteStatValue: 0,
+  },
+  // Capstone branch: striker_cap — gated at Power 30
+  {
+    skillId: 'crit_strike',
+    name: 'Crit Strike',
+    description: '5% chance on manual clicks to deal 10× yield.',
+    maxLevel: 1,
+    prerequisiteSkillId: '',
+    prerequisiteLevel: 0,
+    costSkillPoints: 5,
+    positionX: -150,
+    positionY: 450,
+    sortOrder: 10,
+    treeId: 'striker',
+    capstoneBranchId: 'striker_cap',
+    infiniteScaling: false,
+    prerequisiteStatId: 'power',
+    prerequisiteStatValue: 30,
+  },
+  {
+    skillId: 'momentum',
+    name: 'Momentum',
+    description: 'Every 50 consecutive combo-window clicks grants a free class point.',
+    maxLevel: 1,
+    prerequisiteSkillId: '',
+    prerequisiteLevel: 0,
+    costSkillPoints: 5,
+    positionX: 0,
+    positionY: 480,
+    sortOrder: 11,
+    treeId: 'striker',
+    capstoneBranchId: 'striker_cap',
+    infiniteScaling: false,
+    prerequisiteStatId: 'power',
+    prerequisiteStatValue: 30,
+  },
+  {
+    skillId: 'ironfist',
+    name: 'Ironfist',
+    description: "Power scales 50% harder into Defensive Battle damage.",
+    maxLevel: 1,
+    prerequisiteSkillId: '',
+    prerequisiteLevel: 0,
+    costSkillPoints: 5,
+    positionX: 150,
+    positionY: 450,
+    sortOrder: 12,
+    treeId: 'striker',
+    capstoneBranchId: 'striker_cap',
+    infiniteScaling: false,
+    prerequisiteStatId: 'power',
+    prerequisiteStatValue: 30,
+  },
+];
+
+const STRIKER_EFFECT_SEEDS: ClassNodeEffectSeed[] = [
+  { skillId: 'heavy_hand_1', effectKey: CAPABILITY_KEYS.MANUAL_CLICK_YIELD_PCT_BP, amountPerLevel: 2500 },
+  { skillId: 'heavy_hand_2', effectKey: CAPABILITY_KEYS.MANUAL_CLICK_YIELD_PCT_BP, amountPerLevel: 2500 },
+  { skillId: 'combo', effectKey: CAPABILITY_KEYS.MANUAL_CLICK_COMBO_ENABLED, amountPerLevel: 1 },
+  { skillId: 'quickstep', effectKey: CAPABILITY_KEYS.MANUAL_CLICK_PROGRESSES_ALL_SLOTS, amountPerLevel: 1 },
+  { skillId: 'cleaver', effectKey: CAPABILITY_KEYS.COMBAT_DAMAGE_EXTRA_TARGET, amountPerLevel: 1 },
+  { skillId: 'striker_infinite', effectKey: CAPABILITY_KEYS.MANUAL_CLICK_YIELD_PCT_BP, amountPerLevel: 100 },
+  // crit_strike grants TWO capability rows
+  { skillId: 'crit_strike', effectKey: CAPABILITY_KEYS.MANUAL_CLICK_CRIT_CHANCE_BP, amountPerLevel: 500 },
+  { skillId: 'crit_strike', effectKey: CAPABILITY_KEYS.MANUAL_CLICK_CRIT_MULTIPLIER_BP, amountPerLevel: 100000 },
+  { skillId: 'momentum', effectKey: CAPABILITY_KEYS.COMBO_FREE_CRAFT_THRESHOLD, amountPerLevel: 50 },
+  { skillId: 'ironfist', effectKey: CAPABILITY_KEYS.COMBAT_POWER_DAMAGE_MULTIPLIER_BP, amountPerLevel: 5000 },
+];
+
+// Wanderer tree nodes (treeId: 'wanderer')
+const WANDERER_NODE_SEEDS: ClassNodeSeed[] = [
+  {
+    skillId: 'lucky_strike_1',
+    name: 'Lucky Strike I',
+    description: '+1% chance per click/tick to trigger a Fortune proc (10× yield burst).',
+    maxLevel: 1,
+    prerequisiteSkillId: '',
+    prerequisiteLevel: 0,
+    costSkillPoints: 1,
+    positionX: 0,
+    positionY: 0,
+    sortOrder: 0,
+    treeId: 'wanderer',
+    capstoneBranchId: '',
+    infiniteScaling: false,
+    prerequisiteStatId: '',
+    prerequisiteStatValue: 0,
+  },
+  {
+    skillId: 'lucky_strike_2',
+    name: 'Lucky Strike II',
+    description: 'Fortune proc chance grows to 2.5% total.',
+    maxLevel: 1,
+    prerequisiteSkillId: 'lucky_strike_1',
+    prerequisiteLevel: 1,
+    costSkillPoints: 2,
+    positionX: 0,
+    positionY: 150,
+    sortOrder: 1,
+    treeId: 'wanderer',
+    capstoneBranchId: '',
+    infiniteScaling: false,
+    prerequisiteStatId: '',
+    prerequisiteStatValue: 0,
+  },
+  {
+    skillId: 'cascade',
+    name: 'Cascade',
+    description: 'Fortune procs have a 25% chance to chain into another proc.',
+    maxLevel: 1,
+    prerequisiteSkillId: 'lucky_strike_1',
+    prerequisiteLevel: 1,
+    costSkillPoints: 2,
+    positionX: -250,
+    positionY: 100,
+    sortOrder: 2,
+    treeId: 'wanderer',
+    capstoneBranchId: '',
+    infiniteScaling: false,
+    prerequisiteStatId: '',
+    prerequisiteStatValue: 0,
+  },
+  {
+    skillId: 'quartermaster_drop',
+    name: 'Quartermaster',
+    description: 'Fortune procs have a 10% chance to also drop a freshly crafted item.',
+    maxLevel: 1,
+    prerequisiteSkillId: 'lucky_strike_2',
+    prerequisiteLevel: 1,
+    costSkillPoints: 3,
+    positionX: 0,
+    positionY: 300,
+    sortOrder: 3,
+    treeId: 'wanderer',
+    capstoneBranchId: '',
+    infiniteScaling: false,
+    prerequisiteStatId: '',
+    prerequisiteStatValue: 0,
+  },
+  {
+    skillId: 'loaded_dice',
+    name: 'Loaded Dice',
+    description: 'Defensive Battle loot multiplier gains a flat +0.5 bonus.',
+    maxLevel: 1,
+    prerequisiteSkillId: 'lucky_strike_2',
+    prerequisiteLevel: 1,
+    costSkillPoints: 2,
+    positionX: 250,
+    positionY: 200,
+    sortOrder: 4,
+    treeId: 'wanderer',
+    capstoneBranchId: '',
+    infiniteScaling: false,
+    prerequisiteStatId: '',
+    prerequisiteStatValue: 0,
+  },
+  {
+    skillId: 'wanderer_infinite',
+    name: 'Wanderer',
+    description: 'Each level grants +0.25% additional Fortune proc chance (stacks indefinitely).',
+    maxLevel: 1,
+    prerequisiteSkillId: 'lucky_strike_2',
+    prerequisiteLevel: 1,
+    costSkillPoints: 1,
+    positionX: 250,
+    positionY: 0,
+    sortOrder: 5,
+    treeId: 'wanderer',
+    capstoneBranchId: '',
+    infiniteScaling: true,
+    prerequisiteStatId: '',
+    prerequisiteStatValue: 0,
+  },
+  {
+    skillId: 'fortune_growth',
+    name: 'Vagrant',
+    description: 'Each level grants +1 Fortune (stacks indefinitely). Path to deeper Wanderer mastery.',
+    maxLevel: 1,
+    prerequisiteSkillId: 'lucky_strike_2',
+    prerequisiteLevel: 1,
+    costSkillPoints: 1,
+    positionX: 350,
+    positionY: 100,
+    sortOrder: 6,
+    treeId: 'wanderer',
+    capstoneBranchId: '',
+    infiniteScaling: true,
+    prerequisiteStatId: '',
+    prerequisiteStatValue: 0,
+  },
+  // Capstone branch: wanderer_cap — gated at Fortune 30
+  {
+    skillId: 'rich_veins',
+    name: 'Rich Veins',
+    description: '0.1% chance on clicks to trigger a vein — a burst of mixed resources scaled to player level.',
+    maxLevel: 1,
+    prerequisiteSkillId: '',
+    prerequisiteLevel: 0,
+    costSkillPoints: 5,
+    positionX: -150,
+    positionY: 450,
+    sortOrder: 10,
+    treeId: 'wanderer',
+    capstoneBranchId: 'wanderer_cap',
+    infiniteScaling: false,
+    prerequisiteStatId: 'fortune',
+    prerequisiteStatValue: 30,
+  },
+  {
+    skillId: 'echo',
+    name: 'Echo',
+    description: 'Fortune procs have a 25% chance to fire simultaneously on a random group member.',
+    maxLevel: 1,
+    prerequisiteSkillId: '',
+    prerequisiteLevel: 0,
+    costSkillPoints: 5,
+    positionX: 0,
+    positionY: 480,
+    sortOrder: 11,
+    treeId: 'wanderer',
+    capstoneBranchId: 'wanderer_cap',
+    infiniteScaling: false,
+    prerequisiteStatId: 'fortune',
+    prerequisiteStatValue: 30,
+  },
+  {
+    skillId: 'fates_favor',
+    name: "Fate's Favor",
+    description: 'Fortune procs are 2× larger.',
+    maxLevel: 1,
+    prerequisiteSkillId: '',
+    prerequisiteLevel: 0,
+    costSkillPoints: 5,
+    positionX: 150,
+    positionY: 450,
+    sortOrder: 12,
+    treeId: 'wanderer',
+    capstoneBranchId: 'wanderer_cap',
+    infiniteScaling: false,
+    prerequisiteStatId: 'fortune',
+    prerequisiteStatValue: 30,
+  },
+];
+
+const WANDERER_EFFECT_SEEDS: ClassNodeEffectSeed[] = [
+  { skillId: 'lucky_strike_1', effectKey: CAPABILITY_KEYS.FORTUNE_PROC_CHANCE_BP, amountPerLevel: 100 },
+  { skillId: 'lucky_strike_2', effectKey: CAPABILITY_KEYS.FORTUNE_PROC_CHANCE_BP, amountPerLevel: 150 },
+  { skillId: 'cascade', effectKey: CAPABILITY_KEYS.FORTUNE_CASCADE_CHANCE_BP, amountPerLevel: 2500 },
+  { skillId: 'quartermaster_drop', effectKey: CAPABILITY_KEYS.FORTUNE_PROC_DROPS_ITEM_BP, amountPerLevel: 1000 },
+  { skillId: 'loaded_dice', effectKey: CAPABILITY_KEYS.COMBAT_LOOT_MULTIPLIER_FLAT_BP, amountPerLevel: 5000 },
+  { skillId: 'wanderer_infinite', effectKey: CAPABILITY_KEYS.FORTUNE_PROC_CHANCE_BP, amountPerLevel: 25 },
+  { skillId: 'rich_veins', effectKey: CAPABILITY_KEYS.VEIN_DROP_CHANCE_BP, amountPerLevel: 10 },
+  { skillId: 'echo', effectKey: CAPABILITY_KEYS.FORTUNE_PROC_ECHO_CHANCE_BP, amountPerLevel: 2500 },
+  { skillId: 'fates_favor', effectKey: CAPABILITY_KEYS.FORTUNE_PROC_MULTIPLIER_BP, amountPerLevel: 20000 },
+];
+
+// All class node seeds in order: used by seedClassSystem.
+const ALL_CLASS_NODE_SEEDS: ClassNodeSeed[] = [
+  ...BRUTE_NODE_SEEDS,
+  ...GENERALIST_NODE_SEEDS,
+  ...STRIKER_NODE_SEEDS,
+  ...WANDERER_NODE_SEEDS,
+];
+
+const ALL_CLASS_EFFECT_SEEDS: ClassNodeEffectSeed[] = [
+  ...BRUTE_EFFECT_SEEDS,
+  ...GENERALIST_EFFECT_SEEDS,
+  ...STRIKER_EFFECT_SEEDS,
+  ...WANDERER_EFFECT_SEEDS,
+];
+
 /**
  * Seeds all class system definitions. Idempotent — safe to call on every init.
+/**
+ * Seeds class system definitions. Idempotent — safe to call on every init.
  * Must be called AFTER seedSkillTrees() so the intermediate treeId row exists.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -596,41 +1885,95 @@ export function seedClassSystem(ctx: any): void {
     }
   }
 
-  // 3. Unlock_<class> skill nodes in the Intermediate tree
+  // 3. Unlock_<class> skill nodes in the Intermediate tree. Upsert so layout
+  // tweaks (positionX/Y, copy edits) land via runSeedMigration.
   for (const seed of UNLOCK_NODE_SEEDS) {
-    if (ctx.db.skillDefinition.skillId.find(seed.skillId) === null) {
-      ctx.db.skillDefinition.insert({
+    const existing = ctx.db.skillDefinition.skillId.find(seed.skillId);
+    const row = {
+      skillId: seed.skillId,
+      name: seed.name,
+      description: seed.description,
+      maxLevel: 1,
+      prerequisiteSkillId: seed.prerequisiteSkillId,
+      prerequisiteLevel: seed.prerequisiteLevel,
+      prerequisitePlayerLevel: 0,
+      costSkillPoints: 1,
+      positionX: seed.positionX,
+      positionY: seed.positionY,
+      sortOrder: seed.sortOrder,
+      treeId: 'intermediate',
+      capstoneBranchId: '',
+      infiniteScaling: false,
+      prerequisiteStatId: seed.prerequisiteStatId,
+      prerequisiteStatValue: seed.prerequisiteStatValue,
+    };
+    if (existing === null) {
+      ctx.db.skillDefinition.insert(row);
+    } else {
+      ctx.db.skillDefinition.skillId.update({ ...existing, ...row });
+    }
+  }
+
+  // 4. Class tree node definitions. Upsert (same reason as step 3).
+  for (const seed of ALL_CLASS_NODE_SEEDS) {
+    const existing = ctx.db.skillDefinition.skillId.find(seed.skillId);
+    const row = {
+      skillId: seed.skillId,
+      name: seed.name,
+      description: seed.description,
+      maxLevel: seed.maxLevel,
+      prerequisiteSkillId: seed.prerequisiteSkillId,
+      prerequisiteLevel: seed.prerequisiteLevel,
+      prerequisitePlayerLevel: 0,
+      costSkillPoints: seed.costSkillPoints,
+      positionX: seed.positionX,
+      positionY: seed.positionY,
+      sortOrder: seed.sortOrder,
+      treeId: seed.treeId,
+      capstoneBranchId: seed.capstoneBranchId,
+      infiniteScaling: seed.infiniteScaling,
+      prerequisiteStatId: seed.prerequisiteStatId,
+      prerequisiteStatValue: seed.prerequisiteStatValue,
+    };
+    if (existing === null) {
+      ctx.db.skillDefinition.insert(row);
+    } else {
+      ctx.db.skillDefinition.skillId.update({ ...existing, ...row });
+    }
+  }
+
+  // 5. Class node effect rows (class_node_effect — capability grants per node)
+  for (const seed of ALL_CLASS_EFFECT_SEEDS) {
+    // Idempotent: check for existing row with same (skillId, effectKey)
+    let effectExists = false;
+    for (const row of ctx.db.classNodeEffect.class_node_effect_skill_id.filter(seed.skillId)) {
+      if (row.effectKey === seed.effectKey) {
+        effectExists = true;
+        break;
+      }
+    }
+    if (!effectExists) {
+      ctx.db.classNodeEffect.insert({
+        id: 0n,
         skillId: seed.skillId,
-        name: seed.name,
-        description: seed.description,
-        maxLevel: 1,
-        prerequisiteSkillId: '',
-        prerequisiteLevel: 0,
-        prerequisitePlayerLevel: 0,
-        costSkillPoints: 1,
-        positionX: seed.positionX,
-        positionY: seed.positionY,
-        sortOrder: seed.sortOrder,
-        treeId: 'intermediate',
-        capstoneBranchId: '',
-        infiniteScaling: false,
-        prerequisiteStatId: seed.prerequisiteStatId,
-        prerequisiteStatValue: seed.prerequisiteStatValue,
+        effectKey: seed.effectKey,
+        amountPerLevel: seed.amountPerLevel,
+        appliesWhen: { tag: 'equipped', value: undefined },
       });
     }
   }
 
-  // 4. Class craft cost rows
+  // 6. Class craft cost rows. Upsert so rebalances to amountPerPoint /
+  // pointsInTier land via runSeedMigration without a clear-database publish.
   for (const seed of CRAFT_COST_SEEDS) {
-    // Idempotent check: look for an existing row with same (classId, tierIndex, resourceId)
-    let exists = false;
+    let existing = null;
     for (const row of ctx.db.classCraftCost.class_craft_cost_class_id.filter(seed.classId)) {
       if (row.tierIndex === seed.tierIndex && row.resourceId === seed.resourceId) {
-        exists = true;
+        existing = row;
         break;
       }
     }
-    if (!exists) {
+    if (existing === null) {
       ctx.db.classCraftCost.insert({
         id: 0n,
         classId: seed.classId,
@@ -639,6 +1982,47 @@ export function seedClassSystem(ctx: any): void {
         resourceId: seed.resourceId,
         amountPerPoint: seed.amountPerPoint,
       });
+    } else if (
+      existing.pointsInTier !== seed.pointsInTier ||
+      existing.amountPerPoint !== seed.amountPerPoint
+    ) {
+      ctx.db.classCraftCost.id.update({
+        ...existing,
+        pointsInTier: seed.pointsInTier,
+        amountPerPoint: seed.amountPerPoint,
+      });
+    }
+  }
+
+  // 7. Class action definitions + scaling rows. The grant of these to players
+  // happens in equipClass; this just makes the action_definition rows exist.
+  for (const def of CLASS_ACTION_DEFS) {
+    const existing = ctx.db.actionDefinition.actionId.find(def.actionId);
+    const row = {
+      actionId: def.actionId,
+      displayName: def.displayName,
+      description: def.description,
+      iconKey: def.iconKey,
+      targeting: def.targeting,
+      effect: def.effect,
+      sortOrder: def.sortOrder,
+    };
+    if (existing === null) {
+      ctx.db.actionDefinition.insert(row);
+    } else {
+      ctx.db.actionDefinition.actionId.update({ ...existing, ...row });
+    }
+  }
+  for (const scaling of CLASS_ACTION_SCALINGS) {
+    let exists = false;
+    for (const row of ctx.db.actionStatScaling.action_stat_scaling_action.filter(scaling.actionId)) {
+      if (row.statId === scaling.statId && row.scalingKind.tag === scaling.scalingKind.tag) {
+        exists = true;
+        break;
+      }
+    }
+    if (!exists) {
+      ctx.db.actionStatScaling.insert({ id: 0n, ...scaling });
     }
   }
 }

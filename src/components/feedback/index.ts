@@ -7,6 +7,7 @@
 // there for any per-game customization rather than hardcoding inline literals.
 
 export { default as DamagePop } from './DamagePop';
+export { default as EventFloater } from './EventFloater';
 export { default as FlashOverlay } from './FlashOverlay';
 export { default as LaggingHpBar } from './LaggingHpBar';
 export { default as ResultsPopup } from './ResultsPopup';

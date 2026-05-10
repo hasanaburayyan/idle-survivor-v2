@@ -50,6 +50,7 @@ export const COLOR_BG_TINT = 'rgba(15, 23, 42, 0.85)'; // slate-900/85 — popup
 export const COLOR_CARD_BG = '#0f172a';       // slate-900 — popup card background
 export const COLOR_CARD_BORDER = '#334155';   // slate-700 — popup card border
 export const COLOR_HP_TRACK = '#1e293b';      // slate-800 — HP bar background track
+export const COLOR_FORTUNE_PROC = '#fbbf24';  // amber-400 — Wanderer fortune-proc events
 
 // ---------------------------------------------------------------------------
 // Easing — re-exported from RN to keep call sites short

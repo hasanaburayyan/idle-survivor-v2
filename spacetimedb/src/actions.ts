@@ -2,6 +2,7 @@ import { t, SenderError } from 'spacetimedb/server';
 import spacetimedb from './schema';
 import { insertNotification } from './notifications';
 import { getStatTotals } from './stats';
+import { CAPABILITY_KEYS, getCapabilityTotal } from './class';
 import {
   actionDefinition,
   actionStatScaling,
@@ -229,7 +230,8 @@ export function resolveActionForBattle(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   ctx: any,
   actionId: string,
-  statTotals: Record<string, number>
+  statTotals: Record<string, number>,
+  username?: string
 ): ResolvedEffect {
   const def = ctx.db.actionDefinition.actionId.find(actionId);
   if (def === null) throw new SenderError(`Unknown actionId: ${actionId}`);
@@ -237,7 +239,40 @@ export function resolveActionForBattle(
   for (const row of ctx.db.actionStatScaling.action_stat_scaling_action.filter(actionId)) {
     scalingRows.push({ statId: row.statId, scalingKind: row.scalingKind });
   }
-  return computeResolvedEffect(def.effect, scalingRows, statTotals);
+  let result = computeResolvedEffect(def.effect, scalingRows, statTotals);
+
+  // COMBAT_POWER_DAMAGE_MULTIPLIER_BP: extra multiplier applied to the Power
+  // stat's contribution to damage. Only affects damage kind actions.
+  if (username && result.kind === 'damage') {
+    const powerMultBp = getCapabilityTotal(ctx, username, CAPABILITY_KEYS.COMBAT_POWER_DAMAGE_MULTIPLIER_BP);
+    if (powerMultBp > 0) {
+      const power = statTotals['power'] ?? 0;
+      let extraMin = 0;
+      let extraMax = 0;
+      for (const row of scalingRows) {
+        if (row.statId !== 'power') continue;
+        const perPoint = (row.scalingKind.value as { perPoint?: number } | undefined)?.perPoint ?? 0;
+        const extra = power * perPoint * (powerMultBp / 10000);
+        if (row.scalingKind.tag === 'addToBoth') {
+          extraMin += extra;
+          extraMax += extra;
+        } else if (row.scalingKind.tag === 'addToMax') {
+          extraMax += extra;
+        } else if (row.scalingKind.tag === 'addToMin') {
+          extraMin += extra;
+        }
+      }
+      if (extraMin !== 0 || extraMax !== 0) {
+        result = {
+          ...result,
+          resolvedMin: Math.max(0, Math.round(result.resolvedMin + extraMin)),
+          resolvedMax: Math.max(result.resolvedMin, Math.round(result.resolvedMax + extraMax)),
+        };
+      }
+    }
+  }
+
+  return result;
 }
 
 // ---------- Views ----------

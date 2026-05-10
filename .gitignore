@@ -16,6 +16,10 @@ web-build/
 .env.local
 .env.*.local
 
+# Tailscale-issued TLS certs (per-machine, never commit)
+*.ts.net.crt
+*.ts.net.key
+
 # Editor / OS
 .DS_Store
 .vscode/

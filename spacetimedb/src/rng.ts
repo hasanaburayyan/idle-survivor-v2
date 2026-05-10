@@ -96,16 +96,18 @@ export function pickWeightedWithoutReplacement<T>(
 // The roll formula from the Equipment & Armory Stat Rework spec.
 // At armoryLevel 1, average is ~midpoint. At maxArmoryLevel, distribution skews
 // toward max (avg ~85% of range).
+// extraBias: additional bias added before clamping (e.g. CRAFT_AFFIX_BIAS_BP / 10000).
 export function rollAffixAmount(
   rng: Rng,
   min: number,
   max: number,
   armoryLevel: number,
-  maxArmoryLevel: number
+  maxArmoryLevel: number,
+  extraBias: number = 0
 ): number {
   if (max <= min) return min;
   const denom = Math.max(1, maxArmoryLevel - 1);
-  const bias = Math.max(0, Math.min(1, (armoryLevel - 1) / denom));
+  const bias = Math.max(0, Math.min(1, (armoryLevel - 1) / denom + extraBias));
   const u = rng.uniform();
   const exponent = 1 - bias * 0.7;
   const skewed = Math.pow(u, exponent);

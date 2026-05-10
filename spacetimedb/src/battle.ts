@@ -4,6 +4,9 @@ import spacetimedb from './schema';
 import { insertNotification, deleteNotificationByRef } from './notifications';
 import { getStatTotals } from './stats';
 import { resolveActionForBattle } from './actions';
+import { CAPABILITY_KEYS, getCapabilityTotal } from './class';
+import { applyResourceYieldBonus } from './structures';
+import { Rng, buildSeed } from './rng';
 import {
   defensiveBattleSession,
   defensiveBattleParticipant,
@@ -375,7 +378,9 @@ function startBattle(ctx: any, sessionId: bigint): void {
     const vigor = totals['vigor'] ?? 0;
     const focus = totals['focus'] ?? 0;
     const maxHp = hpFromVigor(vigor);
-    const handSize = handSizeFromFocus(focus);
+    // COMBAT_HAND_SIZE_BONUS: class tree nodes add flat cards to hand (no upper bound, per spec).
+    const handSizeBonus = getCapabilityTotal(ctx, p.username, CAPABILITY_KEYS.COMBAT_HAND_SIZE_BONUS);
+    const handSize = handSizeFromFocus(focus) + handSizeBonus;
     ctx.db.defensiveBattleParticipant.id.update({
       ...p,
       maxHp,
@@ -457,15 +462,21 @@ function runGameOverChecks(ctx: any, sessionId: bigint): void {
   for (const p of participants) {
     const totals = snapshotMap(ctx, sessionId, p.username);
     const fortune = totals['fortune'] ?? 0;
-    const mult = lootMultiplierFromFortune(fortune);
+    // COMBAT_LOOT_MULTIPLIER_FLAT_BP: flat additive bonus on top of the fortune-derived multiplier.
+    const lootFlatBp = getCapabilityTotal(ctx, p.username, CAPABILITY_KEYS.COMBAT_LOOT_MULTIPLIER_FLAT_BP);
+    const mult = lootMultiplierFromFortune(fortune) + lootFlatBp / 10000;
     const wavesSurvived = p.waveAtDefeat > 0 ? Math.max(0, p.waveAtDefeat - 1) : Math.max(0, session.currentWave - 1);
     const scrap = BigInt(Math.floor((50 + 30 * wavesSurvived) * mult));
     const parts = BigInt(Math.floor(5 * Math.max(0, wavesSurvived - 2) * mult));
     const metal = BigInt(Math.floor(2 * Math.max(0, wavesSurvived - 5) * mult));
     const xp = BigInt(Math.floor(20 * wavesSurvived * mult));
+    // Battle rewards route through the resource skill chains so Parts/Metal
+    // skill investment scales combat loot the same as structure income.
+    const partsGain = applyResourceYieldBonus(ctx, p.username, 'parts', parts);
+    const metalGain = applyResourceYieldBonus(ctx, p.username, 'metal', metal);
     grantScrap(ctx, p.username, scrap);
-    grantResource(ctx, p.username, 'parts', parts);
-    grantResource(ctx, p.username, 'metal', metal);
+    grantResource(ctx, p.username, 'parts', partsGain);
+    grantResource(ctx, p.username, 'metal', metalGain);
     grantXp(ctx, p.username, xp);
 
     // Restore location.
@@ -792,7 +803,7 @@ export const performAction = spacetimedb.reducer(
 
     // Resolve effect using snapshot stats.
     const totals = snapshotMap(ctx, sessionId, s.username);
-    const resolved = resolveActionForBattle(ctx, mySlot.actionId, totals);
+    const resolved = resolveActionForBattle(ctx, mySlot.actionId, totals, s.username);
 
     // Identify target set based on action.targeting.
     const targetingTag = actionDef.targeting.tag;
@@ -806,6 +817,18 @@ export const performAction = spacetimedb.reducer(
         throw new SenderError('Invalid zombie target');
       }
       zombieTargets.push({ id: targetId, row: z });
+      // COMBAT_DAMAGE_EXTRA_TARGET: each point adds one additional live zombie hit
+      // by single-target actions (deterministic selection — first N live, skip primary).
+      const extraTargetCount = getCapabilityTotal(ctx, s.username, CAPABILITY_KEYS.COMBAT_DAMAGE_EXTRA_TARGET);
+      if (extraTargetCount > 0) {
+        let added = 0;
+        for (const lz of liveZombiesOf(ctx, sessionId, session.currentWave)) {
+          if (lz.id === targetId) continue;
+          zombieTargets.push({ id: lz.id, row: lz });
+          added += 1;
+          if (added >= extraTargetCount) break;
+        }
+      }
     } else if (targetingTag === 'allEnemies') {
       for (const z of liveZombiesOf(ctx, sessionId, session.currentWave)) {
         zombieTargets.push({ id: z.id, row: z });
@@ -956,6 +979,7 @@ export const performAction = spacetimedb.reducer(
     let me2 = ctx.db.defensiveBattleParticipant.id.find(me.id);
     if (me2 !== null) {
       let damage = tickAmount;
+      let steelFrameProc = false;
       if (me2.wardCount > 0) {
         ctx.db.defensiveBattleParticipant.id.update({ ...me2, wardCount: me2.wardCount - 1 });
         damage = 0;
@@ -973,12 +997,43 @@ export const performAction = spacetimedb.reducer(
             const refreshed = ctx.db.defensiveBattleSession.sessionId.find(sessionId);
             if (refreshed !== null) updatedSession = refreshed;
           }
+        } else if (damage > 0) {
+          // Iron Will / Steel Frame — surviving an unwarded hit can grant the
+          // next-hit ward. Roll only when actual HP loss happened.
+          const wardChanceBp = getCapabilityTotal(
+            ctx,
+            s.username,
+            CAPABILITY_KEYS.COMBAT_DAMAGE_TAKEN_WARD_BP
+          );
+          if (wardChanceBp > 0) {
+            // Include participant id + currentWave so two same-microsecond
+            // resolutions for the same player can't collide on the proc roll.
+            const seed = buildSeed([
+              ctx.timestamp.microsSinceUnixEpoch,
+              s.username,
+              sessionId,
+              me.id,
+              BigInt(updatedSession.currentWave),
+              'steel_frame',
+            ]);
+            if (new Rng(seed).uniform() < wardChanceBp / 10000) {
+              const refreshed = ctx.db.defensiveBattleParticipant.id.find(me.id);
+              if (refreshed !== null) {
+                ctx.db.defensiveBattleParticipant.id.update({
+                  ...refreshed,
+                  wardCount: refreshed.wardCount + 1,
+                });
+                steelFrameProc = true;
+              }
+            }
+          }
         }
       }
       logEvent(ctx, sessionId, s.username, 'damageDealt', {
         source: 'self',
         actionId: mySlot.actionId,
         amount: damage,
+        steelFrameProc,
       });
     }
 

@@ -37,10 +37,30 @@ export interface ActivityStateRow {
 export function ActivityGrid({
   activities,
   activityState,
+  layout = 'grid',
 }: {
   activities: ActivityDef[];
   activityState: readonly ActivityStateRow[];
+  // 'grid' = 3-up tiled (used in narrow construction-site panels). 'stack' =
+  // one row per activity at full width (used in the always-visible Scavenge
+  // panel where horizontal space is too tight for a grid).
+  layout?: 'grid' | 'stack';
 }) {
+  if (layout === 'stack') {
+    return (
+      <View className="gap-2">
+        {activities.map(def => {
+          const state = activityState.find(s => s.activityId === def.activityId);
+          return (
+            <View key={def.activityId} className="flex-row">
+              <ActivityCell def={def} state={state} />
+            </View>
+          );
+        })}
+      </View>
+    );
+  }
+
   const rows: ActivityDef[][] = [];
   for (let i = 0; i < activities.length; i += 3) {
     rows.push(activities.slice(i, i + 3));
@@ -108,8 +128,12 @@ function ScavengeCell({
     def.activityId === 'scavenge' ? 'activity_button:scavenge' : ''
   );
 
+  const [capabilityTotals] = useTable(tables.myCapabilityTotals);
+
   const activityLevel = state?.level ?? 0;
   const scrap = playerStates[0]?.scrap ?? 0n;
+  const comboBp = playerStates[0]?.comboBp ?? 0;
+  const wideNetBp = capabilityTotals.find(c => c.effectKey === 'wide_net_pct_bp')?.total ?? 0;
 
   const prefix = def.skillChainPrefix || 'scavenge';
   const multiplierLvl =
@@ -170,6 +194,26 @@ function ScavengeCell({
         {def.name}
       </Text>
       <View ref={spotlight.ref} onLayout={spotlight.onLayout}>
+        {comboBp > 0 ? (
+          <View
+            pointerEvents="none"
+            style={{
+              position: 'absolute',
+              top: -6,
+              right: -10,
+              zIndex: 5,
+              paddingHorizontal: 6,
+              paddingVertical: 2,
+              borderRadius: 999,
+              backgroundColor:
+                comboBp >= 3000 ? '#f43f5e' : comboBp >= 1000 ? '#f59e0b' : '#475569',
+            }}
+          >
+            <Text className="text-[10px] font-semibold text-white">
+              {(comboBp / 100).toFixed(0)}%
+            </Text>
+          </View>
+        ) : null}
         <Animated.View style={{ transform: [{ scale: pressAnim }] }}>
           <SafePressable
             ref={r => (buttonRef.current = r)}
@@ -198,6 +242,9 @@ function ScavengeCell({
         <Text className="text-[10px] text-slate-400">
           +{formatScrap(power)} {yieldDef.icon}
         </Text>
+      ) : null}
+      {wideNetBp > 0 ? (
+        <Text className="text-[10px] text-blue-400">✦ Wide Net</Text>
       ) : null}
       {costs.length > 0 ? (
         <View className="flex-row flex-wrap justify-center gap-x-1.5 gap-y-0.5">

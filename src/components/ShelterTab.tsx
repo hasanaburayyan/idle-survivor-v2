@@ -1,12 +1,16 @@
 import { useState } from 'react';
-import { ScrollView, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
 import { useTable } from 'spacetimedb/react';
 import { tables } from '../module_bindings';
 import { ActivityGrid, type ActivityDef } from './ActivityGrid';
-import StructureCard from './StructureCard';
 import StructureDetailScreen from './StructureDetailScreen';
 import ArmoryScreen from './ArmoryScreen';
 import ClassCraftingScreen from './ClassCraftingScreen';
+import ShelterFloorPlan from './shelter/ShelterFloorPlan';
+import StructureBar from './shelter/StructureBar';
+import RefineryPage from './shelter/RefineryPage';
+import SmelterPage from './shelter/SmelterPage';
+import GardenPage from './shelter/GardenPage';
 
 const SHELTER_LOCATION_KEY = 'the_shelter';
 
@@ -15,21 +19,23 @@ export default function ShelterTab() {
   const [activityState] = useTable(tables.myActivityState);
   const [structures] = useTable(tables.myStructures);
   const [structureDefs] = useTable(tables.structureDefinition);
-  const [selectedStructureId, setSelectedStructureId] = useState<string | null>(
-    null
-  );
+
+  // Two pieces of view state:
+  // - selectedStructureId: which structure page is active. Null = floor plan.
+  // - selectedActivityId: which build-progress Activity is being focused.
+  //   Activities are NOT structures; they render via the existing ActivityGrid
+  //   rather than a dedicated page.
+  const [selectedStructureId, setSelectedStructureId] = useState<string | null>(null);
+  const [selectedActivityId, setSelectedActivityId] = useState<string | null>(null);
 
   const shelterBuilt =
-    (activityState.find(a => a.activityId === 'build_shelter')?.timesUsed ??
-      0) >= 1;
+    (activityState.find((a) => a.activityId === 'build_shelter')?.timesUsed ?? 0) >= 1;
 
   if (!shelterBuilt) {
     return (
       <View className="flex-1 items-center justify-center px-6 gap-2">
         <Text className="text-5xl">🏚</Text>
-        <Text className="text-xs uppercase tracking-widest text-slate-500">
-          Shelter
-        </Text>
+        <Text className="text-xs uppercase tracking-widest text-slate-500">Shelter</Text>
         <Text className="text-sm text-slate-400 text-center">
           Build your shelter in The Wastes to unlock this menu.
         </Text>
@@ -38,50 +44,98 @@ export default function ShelterTab() {
   }
 
   const sortedActivities = ([...activities] as ActivityDef[]).sort(
-    (a, b) => a.sortOrder - b.sortOrder
+    (a, b) => a.sortOrder - b.sortOrder,
   );
-  const visibleStructures = structures
-    .map(s => {
-      const def = structureDefs.find(d => d.structureId === s.structureId);
-      return def ? { state: s, def } : null;
-    })
-    .filter((v): v is NonNullable<typeof v> => v !== null)
-    .filter(v => v.def.locationKey === SHELTER_LOCATION_KEY)
-    .sort((a, b) => a.def.sortOrder - b.def.sortOrder);
 
-  if (selectedStructureId) {
-    const selected = visibleStructures.find(
-      s => s.def.structureId === selectedStructureId
-    );
-    if (selected) {
-      if (selected.def.structureId === 'armory') {
-        return <ArmoryScreen onBack={() => setSelectedStructureId(null)} />;
-      }
-      if (selected.def.structureId === 'class_crafting') {
-        return <ClassCraftingScreen onBack={() => setSelectedStructureId(null)} />;
-      }
-      return (
-        <StructureDetailScreen
-          def={selected.def}
-          state={selected.state}
-          onBack={() => setSelectedStructureId(null)}
-        />
-      );
+  // Helper to render a specific structure's page when one is selected.
+  const renderStructurePage = (structureId: string) => {
+    if (structureId === 'refinery') return <RefineryPage />;
+    if (structureId === 'smelter') return <SmelterPage />;
+    if (structureId === 'garden') return <GardenPage />;
+    if (structureId === 'armory') {
+      return <ArmoryScreen onBack={() => setSelectedStructureId(null)} />;
     }
-    // Selected structure no longer visible (e.g. data desync) — fall through to list.
+    if (structureId === 'class_crafting') {
+      return <ClassCraftingScreen onBack={() => setSelectedStructureId(null)} />;
+    }
+    // Fall back to generic detail screen (workbench).
+    const playerStructure = structures.find((s) => s.structureId === structureId);
+    const def = structureDefs.find((d) => d.structureId === structureId);
+    if (!playerStructure || !def) return null;
+    return (
+      <StructureDetailScreen
+        def={def}
+        state={playerStructure}
+        onBack={() => setSelectedStructureId(null)}
+      />
+    );
+  };
+
+  // Activity-focused view: an activity (e.g. Build Workbench construction site)
+  // was tapped on the floor plan. Render the existing ActivityGrid scoped to
+  // just that activity, with a back affordance.
+  if (selectedActivityId) {
+    const activity = sortedActivities.find((a) => a.activityId === selectedActivityId);
+    if (!activity) {
+      // Activity disappeared (built or otherwise) — bail back to floor plan.
+      setSelectedActivityId(null);
+      return null;
+    }
+    return (
+      <View className="flex-1">
+        <StructureBar
+          selectedStructureId={null}
+          onSelectStructure={(id) => {
+            setSelectedActivityId(null);
+            setSelectedStructureId(id);
+          }}
+        />
+        <View className="px-4 pt-3 pb-1">
+          <Text className="text-[11px] uppercase tracking-widest text-slate-500">
+            Construction Site
+          </Text>
+          <Text className="text-sm font-semibold text-slate-100">{activity.name}</Text>
+        </View>
+        <ActivityGrid activities={[activity]} activityState={activityState} />
+      </View>
+    );
   }
 
-  return (
-    <ScrollView contentContainerStyle={{ padding: 16, gap: 12 }}>
-      <ActivityGrid activities={sortedActivities} activityState={activityState} />
-      {visibleStructures.map(s => (
-        <StructureCard
-          key={s.state.id.toString()}
-          state={s.state}
-          def={s.def}
-          onSelect={() => setSelectedStructureId(s.def.structureId)}
+  // Structure-focused view: the bar is sticky at the top, page renders below.
+  if (selectedStructureId) {
+    return (
+      <View className="flex-1">
+        <StructureBar
+          selectedStructureId={selectedStructureId}
+          onSelectStructure={(id) => setSelectedStructureId(id)}
         />
-      ))}
-    </ScrollView>
+        {renderStructurePage(selectedStructureId)}
+      </View>
+    );
+  }
+
+  // Floor plan (default Shelter view).
+  return (
+    <View className="flex-1">
+      <StructureBar
+        selectedStructureId={null}
+        onSelectStructure={(id) => setSelectedStructureId(id)}
+      />
+      <ShelterFloorPlan
+        shelterActivities={sortedActivities.map((a) => ({
+          activityId: a.activityId,
+          name: a.name,
+          icon: a.icon,
+          progressTarget: a.progressTarget,
+        }))}
+        activityState={activityState.map((a) => ({
+          activityId: a.activityId,
+          progress: a.progress,
+          timesUsed: a.timesUsed,
+        }))}
+        onSelectStructure={(id) => setSelectedStructureId(id)}
+        onSelectActivity={(id) => setSelectedActivityId(id)}
+      />
+    </View>
   );
 }

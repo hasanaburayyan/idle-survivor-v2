@@ -1,5 +1,6 @@
 import { t, SenderError } from 'spacetimedb/server';
 import spacetimedb from '../schema';
+import { applyResourceYieldBonus } from '../structures';
 import {
   MinigameKind,
   minigameMember,
@@ -99,9 +100,20 @@ function applyReward(ctx: any, username: string, reward: Reward): void {
     case 'xp':
       grantXp(ctx, username, reward.amount);
       return;
-    case 'item':
-      grantItem(ctx, username, reward.resourceId, reward.quantity);
+    case 'item': {
+      // Non-scrap resources route through their skill chain (Minor flat +
+      // Major %) — so Medicine from minigames scales with the Medicine tree.
+      // resourceId maps directly to the chain prefix for parts/metal/fabric/
+      // food/medicine; scrap is never delivered as 'item' (uses 'scrap' kind).
+      const yieldAmount = applyResourceYieldBonus(
+        ctx,
+        username,
+        reward.resourceId,
+        reward.quantity
+      );
+      grantItem(ctx, username, reward.resourceId, yieldAmount);
       return;
+    }
     case 'custom':
       reward.apply(ctx, username);
       return;

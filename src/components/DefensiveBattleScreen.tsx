@@ -733,7 +733,7 @@ function ParticipantCard({
       <View ref={spotlight.ref} onLayout={spotlight.onLayout} collapsable={false}>
       <SafePressable
         onPress={onTap}
-        disabled={!highlight || isDefeated}
+        disabled={!highlight}
         style={{ position: 'relative' }}
         className={`rounded-xl border px-3 py-2 ${borderClass} ${bgClass}`}
       >

@@ -11,9 +11,11 @@ import {
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import SafePressable from './SafePressable';
 import { useSpotlightTarget } from './SpotlightTargetRegistry';
-import Svg, { Line } from 'react-native-svg';
+import Svg, { Line, Rect } from 'react-native-svg';
+import RefundCapstoneModal from './RefundCapstoneModal';
 import { useReducer, useTable } from 'spacetimedb/react';
 import { reducers, tables } from '../module_bindings';
+import { formatScrap } from '../lib/scavenge';
 import ClassEquipModal, {
   CLASS_GLYPH,
   CLASS_ACCENT_TEXT,
@@ -22,7 +24,10 @@ import ClassEquipModal, {
 } from './ClassEquipModal';
 
 const NODE_DIAMETER = 96;
-const CANVAS_PADDING = 220;
+// Edge padding around the cloud of nodes. Kept tight — the visible canvas
+// already centres on a meaningful node via auto-pan, so wide padding just
+// makes the tree feel sparse on first paint.
+const CANVAS_PADDING = 80;
 const MIN_SCALE = 0.5;
 const MAX_SCALE = 2.0;
 const WHEEL_STEP = 0.1;
@@ -89,6 +94,19 @@ export default function SkillTreeTab() {
   const [statTotals] = useTable(tables.myStatTotals);
   const upgrade = useReducer(reducers.upgradeSkill);
 
+  const [capstoneChoices] = useTable(tables.myCapstoneChoices);
+  const [craftCosts] = useTable(tables.classCraftCost);
+  const [craftProgress] = useTable(tables.myClassCraftProgress);
+  const [resourceDefs] = useTable(tables.resourceDefinition);
+
+  const refundCapstoneReducer = useReducer(reducers.refundCapstoneChoice);
+  const doRefundCapstone = useCallback(
+    async (classId: string, capstoneBranchId: string): Promise<void> => {
+      refundCapstoneReducer({ classId, capstoneBranchId });
+    },
+    [refundCapstoneReducer]
+  );
+
   const [equippedClassRows] = useTable(tables.myEquippedClass);
   const equipClassReducer = useReducer(reducers.equipClass);
   const unequipClassReducer = useReducer(reducers.unequipClass);
@@ -103,6 +121,16 @@ export default function SkillTreeTab() {
   const [busy, setBusy] = useState(false);
   const [activeTreeId, setActiveTreeId] = useState<string | null>(null);
   const [equipModalOpen, setEquipModalOpen] = useState(false);
+  /**
+   * When non-null, the RefundCapstoneModal is open for this branch.
+   * Holds enough info to render the modal without extra lookups.
+   */
+  const [refundModal, setRefundModal] = useState<{
+    classId: string;
+    capstoneBranchId: string;
+    chosenSkillName: string;
+    refundCostLabel: string;
+  } | null>(null);
   const playerLevel = playerStates[0]?.playerLevel ?? 0;
   const playerLocation = playerStates[0]?.location ?? '';
   const inMinigame =
@@ -151,6 +179,88 @@ export default function SkillTreeTab() {
   /** treeId of the currently equipped class, or empty string for none. */
   const equippedClassId = equippedClassRows[0]?.classId ?? '';
 
+  // ── Phase 2: capstone + tier data ─────────────────────────────────────────
+
+  /** Map of capstoneBranchId → chosenSkillId for this player. */
+  const capstoneChoiceByBranch = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const c of capstoneChoices) m.set(c.capstoneBranchId, c.chosenSkillId);
+    return m;
+  }, [capstoneChoices]);
+
+  /** Craft costs grouped by classId. Map values are mutable — don't use typeof craftCosts. */
+  type CraftCostRow = (typeof craftCosts)[number];
+  const craftCostsByClass = useMemo(() => {
+    const m = new Map<string, CraftCostRow[]>();
+    for (const row of craftCosts) {
+      const list: CraftCostRow[] = m.get(row.classId) ?? [];
+      list.push(row);
+      m.set(row.classId, list);
+    }
+    return m;
+  }, [craftCosts]);
+
+  /** Points crafted per classId. */
+  const craftProgressByClass = useMemo(() => {
+    const m = new Map<string, bigint>();
+    for (const p of craftProgress) m.set(p.classId, p.pointsCrafted);
+    return m;
+  }, [craftProgress]);
+
+  /** Resource display names for refund cost labels. */
+  const resourceNameById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const d of resourceDefs) m.set(d.resourceId, d.name);
+    return m;
+  }, [resourceDefs]);
+
+  /**
+   * 0-based tier index for the currently active class tree.
+   * null when the active tree is not a class tree or cost data is absent.
+   */
+  const activeTierIndex = useMemo((): number | null => {
+    if (!activeTreeId || !CLASS_TREE_IDS.has(activeTreeId)) return null;
+    const rows = craftCostsByClass.get(activeTreeId);
+    if (!rows || rows.length === 0) return null;
+    const crafted = craftProgressByClass.get(activeTreeId) ?? 0n;
+    const U32_MAX = 0xffffffff;
+    // Deduplicate by tierIndex
+    const tierMap = new Map<number, number>();
+    for (const row of rows) {
+      if (!tierMap.has(row.tierIndex)) tierMap.set(row.tierIndex, row.pointsInTier);
+    }
+    const tiers = [...tierMap.entries()].sort((a, b) => a[0] - b[0]);
+    let remaining = crafted;
+    for (const [tierIdx, pointsInTier] of tiers) {
+      if (pointsInTier === U32_MAX) return tierIdx;
+      if (remaining < BigInt(pointsInTier)) return tierIdx;
+      remaining -= BigInt(pointsInTier);
+    }
+    return tiers.at(-1)?.[0] ?? 0;
+  }, [activeTreeId, craftCostsByClass, craftProgressByClass]);
+
+  /**
+   * Build a pre-formatted refund cost label for a given class.
+   * Formula: 10 × tier-0 primary resource amountPerPoint.
+   * Returns null if cost data is not yet seeded.
+   */
+  const getRefundCostLabel = useCallback(
+    (classId: string): string => {
+      const rows = craftCostsByClass.get(classId) ?? [];
+      const tier0Rows = rows
+        .filter(r => r.tierIndex === 0)
+        .sort((a, b) => (a.id < b.id ? -1 : 1));
+      const primary = tier0Rows[0];
+      if (!primary) return '(cost unknown — seeding pending)';
+      const amount = primary.amountPerPoint * 10n;
+      const resName = resourceNameById.get(primary.resourceId) ?? primary.resourceId;
+      return `${formatScrap(amount)} ${resName}`;
+    },
+    [craftCostsByClass, resourceNameById]
+  );
+
+  // ── End Phase 2 data ──────────────────────────────────────────────────────
+
   /** Class trees the player has unlocked (visible in myVisibleSkillTrees). */
   const unlockedClassTrees = useMemo<ClassTreeRef[]>(
     () =>
@@ -179,20 +289,32 @@ export default function SkillTreeTab() {
   }, [sorted]);
 
   // Per-tree progress: { maxed, total } counts. Used by the tab strip.
-  // Infinite-scaling nodes are excluded from total: they have no hard max,
-  // so including them would make the "done" badge never light for class trees.
-  // This mirrors the server's allNodesMaxed completion rule.
+  // Infinite-scaling nodes are excluded — they have no hard max.
+  // Capstone branches count as ONE slot total: only one of the N nodes in a
+  // branch can ever be taken (the others lock out), so counting them
+  // individually would make the "done" badge unreachable.
   const progressByTree = useMemo(() => {
     const m = new Map<string, { maxed: number; total: number }>();
     for (const tree of sortedTrees) {
       const skills = skillsByTree.get(tree.treeId) ?? [];
       let maxed = 0;
       let total = 0;
+      const capstoneBranches = new Map<string, { anyMaxed: boolean }>();
       for (const def of skills as SkillDef[]) {
-        if (def.infiniteScaling) continue; // no cap — never counts toward completion
-        total += 1;
+        if (def.infiniteScaling) continue;
         const lvl = levelBySkill.get(def.skillId) ?? 0;
-        if (lvl >= def.maxLevel) maxed += 1;
+        if (def.capstoneBranchId) {
+          const entry = capstoneBranches.get(def.capstoneBranchId) ?? { anyMaxed: false };
+          if (lvl >= def.maxLevel) entry.anyMaxed = true;
+          capstoneBranches.set(def.capstoneBranchId, entry);
+        } else {
+          total += 1;
+          if (lvl >= def.maxLevel) maxed += 1;
+        }
+      }
+      for (const branch of capstoneBranches.values()) {
+        total += 1;
+        if (branch.anyMaxed) maxed += 1;
       }
       m.set(tree.treeId, { maxed, total });
     }
@@ -323,10 +445,18 @@ export default function SkillTreeTab() {
   const viewport = useRef({ width: 0, height: 0 });
 
   const onContainerLayout = (e: LayoutChangeEvent) => {
-    viewport.current = {
+    const next = {
       width: e.nativeEvent.layout.width,
       height: e.nativeEvent.layout.height,
     };
+    const prevW = viewport.current.width;
+    viewport.current = next;
+    // First time we learn the viewport's actual size, run the auto-centre we
+    // queued at mount. (Pre-layout the maths can't compute a target offset.)
+    if (prevW === 0 && next.width > 0 && pendingCenter.current) {
+      pendingCenter.current();
+      pendingCenter.current = null;
+    }
   };
 
   const clampX = (x: number, s: number): number => {
@@ -341,6 +471,63 @@ export default function SkillTreeTab() {
     if (contentH <= vpH) return (vpH - contentH) / 2;
     return Math.min(0, Math.max(vpH - contentH, y));
   };
+
+  // Refs for the auto-centre behaviour. centeredTreeId tracks which tree we
+  // last centred on so swapping tabs or first-paint kicks a re-centre, but
+  // upgrading nodes within the same tree doesn't snatch the camera back.
+  const centeredTreeId = useRef<string | null>(null);
+  const pendingCenter = useRef<(() => void) | null>(null);
+
+  // Pick the "where the player cares right now" node for a given tree.
+  //   1. Highest sortOrder among invested nodes (deepest progress) — proxies
+  //      "last node you put a point into" without needing a server timestamp.
+  //   2. Otherwise: lowest sortOrder in the tree (the entry point).
+  const targetNodeForTree = useCallback(
+    (treeId: string | null): SkillDef | null => {
+      if (!treeId) return null;
+      const inTree = visible.filter(d => d.treeId === treeId);
+      if (inTree.length === 0) return null;
+      const invested = inTree.filter(
+        d => (levelBySkill.get(d.skillId) ?? 0) > 0
+      );
+      if (invested.length > 0) {
+        return [...invested].sort((a, b) => b.sortOrder - a.sortOrder)[0];
+      }
+      return [...inTree].sort((a, b) => a.sortOrder - b.sortOrder)[0];
+    },
+    [visible, levelBySkill]
+  );
+
+  const centerOnNode = useCallback(
+    (def: SkillDef) => {
+      if (viewport.current.width === 0 || viewport.current.height === 0) return;
+      const pos = nodePosition(def);
+      const s = scaleOffset.current;
+      const wantX = viewport.current.width / 2 - (originX + pos.x) * s;
+      const wantY = viewport.current.height / 2 - (originY + pos.y) * s;
+      const cx = clampX(wantX, s);
+      const cy = clampY(wantY, s);
+      panOffset.current = { x: cx, y: cy };
+      pan.setValue(panOffset.current);
+    },
+    // clampX/clampY are stable, originX/originY change with visible set
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [originX, originY, canvasWidth, canvasHeight]
+  );
+
+  // Re-centre when the active tree changes (or first lands). Defers until the
+  // viewport has been measured if necessary.
+  useEffect(() => {
+    if (activeTreeId === centeredTreeId.current) return;
+    const target = targetNodeForTree(activeTreeId);
+    if (!target) return;
+    centeredTreeId.current = activeTreeId;
+    if (viewport.current.width === 0) {
+      pendingCenter.current = () => centerOnNode(target);
+      return;
+    }
+    centerOnNode(target);
+  }, [activeTreeId, targetNodeForTree, centerOnNode]);
 
   const composedGesture = useMemo(() => {
     const panGesture = Gesture.Pan()
@@ -438,7 +625,8 @@ export default function SkillTreeTab() {
     ? levelBySkill.get(effectiveSelectedDef.skillId) ?? 0
     : 0;
   const selectedAtMax = effectiveSelectedDef
-    ? selectedLevel >= effectiveSelectedDef.maxLevel
+    ? !effectiveSelectedDef.infiniteScaling &&
+      selectedLevel >= effectiveSelectedDef.maxLevel
     : false;
   const selectedPrereqMet = effectiveSelectedDef
     ? allPrereqsMet(effectiveSelectedDef)
@@ -462,6 +650,7 @@ export default function SkillTreeTab() {
               ? activeTree.displayName
               : null
           }
+          tierIndex={activeTierIndex}
         />
       </View>
 
@@ -538,6 +727,60 @@ export default function SkillTreeTab() {
             style={{ position: 'absolute', top: 0, left: 0 }}
             pointerEvents="none"
           >
+            {/* Capstone branch group backgrounds — rendered behind edges */}
+            {(() => {
+              const rectsByBranch = new Map<
+                string,
+                { minX: number; minY: number; maxX: number; maxY: number }
+              >();
+              for (const def of visible) {
+                if (!def.capstoneBranchId) continue;
+                const pos = nodePosition(def);
+                const existing = rectsByBranch.get(def.capstoneBranchId);
+                if (!existing) {
+                  rectsByBranch.set(def.capstoneBranchId, {
+                    minX: pos.x,
+                    minY: pos.y,
+                    maxX: pos.x,
+                    maxY: pos.y,
+                  });
+                } else {
+                  rectsByBranch.set(def.capstoneBranchId, {
+                    minX: Math.min(existing.minX, pos.x),
+                    minY: Math.min(existing.minY, pos.y),
+                    maxX: Math.max(existing.maxX, pos.x),
+                    maxY: Math.max(existing.maxY, pos.y),
+                  });
+                }
+              }
+              const PAD = NODE_DIAMETER / 2 + 20;
+              return [...rectsByBranch.entries()].map(([branchId, r]) => {
+                const hasChoice = capstoneChoiceByBranch.has(branchId);
+                return (
+                  <Rect
+                    key={`capstone-bg-${branchId}`}
+                    x={originX + r.minX - PAD}
+                    y={originY + r.minY - PAD}
+                    width={r.maxX - r.minX + PAD * 2}
+                    height={r.maxY - r.minY + PAD * 2}
+                    rx={20}
+                    ry={20}
+                    fill={
+                      hasChoice
+                        ? 'rgba(217,119,6,0.07)'
+                        : 'rgba(100,116,139,0.07)'
+                    }
+                    stroke={
+                      hasChoice
+                        ? 'rgba(217,119,6,0.25)'
+                        : 'rgba(100,116,139,0.18)'
+                    }
+                    strokeWidth={1.5}
+                    strokeDasharray="6,3"
+                  />
+                );
+              });
+            })()}
             {visible.flatMap(def => {
               const edges: {
                 fromId: string;
@@ -592,13 +835,44 @@ export default function SkillTreeTab() {
           {visible.map(def => {
             const pos = nodePosition(def);
             const level = levelBySkill.get(def.skillId) ?? 0;
+
+            // Capstone state derivation
+            let capstoneState: 'none' | 'available' | 'chosen' | 'locked-out' = 'none';
+            if (def.capstoneBranchId) {
+              const chosenId = capstoneChoiceByBranch.get(def.capstoneBranchId);
+              if (!chosenId) {
+                capstoneState = 'available';
+              } else if (chosenId === def.skillId) {
+                capstoneState = 'chosen';
+              } else {
+                capstoneState = 'locked-out';
+              }
+            }
+
+            const handlePress =
+              capstoneState === 'locked-out'
+                ? () => {
+                    // Tapping a locked-out capstone opens the refund modal
+                    const chosenId = capstoneChoiceByBranch.get(def.capstoneBranchId) ?? '';
+                    const chosenDef = sorted.find(d => d.skillId === chosenId);
+                    const classId = def.treeId;
+                    setRefundModal({
+                      classId,
+                      capstoneBranchId: def.capstoneBranchId,
+                      chosenSkillName: chosenDef?.name ?? chosenId,
+                      refundCostLabel: getRefundCostLabel(classId),
+                    });
+                  }
+                : () => setSelected(def.skillId);
+
             return (
               <SkillNode
                 key={def.skillId}
                 def={def}
                 level={level}
                 selected={selected === def.skillId}
-                onPress={() => setSelected(def.skillId)}
+                capstoneState={capstoneState}
+                onPress={handlePress}
                 x={originX + pos.x - NODE_DIAMETER / 2}
                 y={originY + pos.y - NODE_DIAMETER / 2}
                 spotlightKey={`skill_node:${def.skillId}`}
@@ -621,7 +895,10 @@ export default function SkillTreeTab() {
           <Text className="text-sm font-semibold text-slate-100">
             {effectiveSelectedDef.name}{' '}
             <Text className="text-xs text-slate-400">
-              Lv {selectedLevel} / {effectiveSelectedDef.maxLevel}
+              Lv {selectedLevel}
+              {effectiveSelectedDef.infiniteScaling
+                ? ' · ∞'
+                : ` / ${effectiveSelectedDef.maxLevel}`}
             </Text>
           </Text>
           <Text className="text-xs text-slate-400">
@@ -634,7 +911,8 @@ export default function SkillTreeTab() {
                 const totalColor =
                   selectedLevel === 0
                     ? 'text-slate-500'
-                    : selectedLevel >= effectiveSelectedDef.maxLevel
+                    : !effectiveSelectedDef.infiniteScaling &&
+                        selectedLevel >= effectiveSelectedDef.maxLevel
                       ? 'text-emerald-300 font-semibold'
                       : 'text-emerald-400';
                 return (
@@ -700,6 +978,20 @@ export default function SkillTreeTab() {
         onEquip={doEquipClass}
         onUnequip={doUnequipClass}
       />
+
+      {/* Capstone refund modal */}
+      {refundModal ? (
+        <RefundCapstoneModal
+          visible
+          onClose={() => setRefundModal(null)}
+          classId={refundModal.classId}
+          capstoneBranchId={refundModal.capstoneBranchId}
+          chosenSkillName={refundModal.chosenSkillName}
+          refundCostLabel={refundModal.refundCostLabel}
+          inMinigame={inMinigame}
+          onRefund={doRefundCapstone}
+        />
+      ) : null}
     </View>
   );
 }
@@ -789,12 +1081,21 @@ function TreeTab({
   );
 }
 
+const TIER_BADGE_COLORS = [
+  { text: 'text-emerald-400', bg: 'bg-emerald-900/30', border: 'border-emerald-800/50' },
+  { text: 'text-amber-400',   bg: 'bg-amber-900/30',   border: 'border-amber-800/50'   },
+  { text: 'text-red-400',     bg: 'bg-red-900/30',     border: 'border-red-800/50'     },
+] as const;
+
 function PoolPointCounter({
   points,
   poolName,
+  tierIndex,
 }: {
   points: number;
   poolName: string | null;
+  /** 0-based tier index for class pool trees; null for non-class trees. */
+  tierIndex?: number | null;
 }) {
   const flash = useRef(new Animated.Value(0)).current;
   const prevPoints = useRef(points);
@@ -825,12 +1126,28 @@ function PoolPointCounter({
     outputRange: [1, 1.18],
   });
 
+  const tierColors = tierIndex != null
+    ? TIER_BADGE_COLORS[Math.min(tierIndex, 2)]
+    : null;
+
   return (
-    <Animated.View style={{ transform: [{ scale }] }}>
+    <Animated.View
+      style={{ transform: [{ scale }] }}
+      className="flex-row items-center gap-2"
+    >
       <Text className="text-sm text-slate-300">
         {poolName ? `${poolName} · ` : ''}
         {points} point{points === 1 ? '' : 's'}
       </Text>
+      {tierColors ? (
+        <View
+          className={`rounded-full border px-2 py-0.5 ${tierColors.bg} ${tierColors.border}`}
+        >
+          <Text className={`text-[10px] font-semibold ${tierColors.text}`}>
+            T{(tierIndex ?? 0) + 1}
+          </Text>
+        </View>
+      ) : null}
     </Animated.View>
   );
 }
@@ -839,6 +1156,7 @@ function SkillNode({
   def,
   level,
   selected,
+  capstoneState = 'none',
   onPress,
   x,
   y,
@@ -847,6 +1165,7 @@ function SkillNode({
   def: SkillDef;
   level: number;
   selected: boolean;
+  capstoneState?: 'none' | 'available' | 'chosen' | 'locked-out';
   onPress: () => void;
   x: number;
   y: number;
@@ -854,21 +1173,47 @@ function SkillNode({
 }) {
   const spotlight = useSpotlightTarget(spotlightKey ?? '');
   const unlocked = level > 0;
-  const borderClass = selected
-    ? 'border-amber-400'
+
+  const isLockedOut = capstoneState === 'locked-out';
+  const isChosen = capstoneState === 'chosen';
+
+  const borderClass = isLockedOut
+    ? 'border-red-900/60'
+    : isChosen
+      ? 'border-amber-400'
+      : selected
+        ? 'border-amber-400'
+        : unlocked
+          ? 'border-emerald-500'
+          : capstoneState === 'available'
+            ? 'border-amber-700/50'
+            : 'border-slate-700';
+
+  const bgClass = isLockedOut
+    ? 'bg-slate-950'
     : unlocked
-      ? 'border-emerald-500'
-      : 'border-slate-700';
-  const bgClass = unlocked ? 'bg-slate-900' : 'bg-slate-950';
-  const glow = unlocked
-    ? {
-        shadowColor: '#10b981',
-        shadowOpacity: 0.6,
-        shadowRadius: 14,
-        shadowOffset: { width: 0, height: 0 },
-        elevation: 6,
-      }
-    : null;
+      ? 'bg-slate-900'
+      : 'bg-slate-950';
+
+  const glow =
+    isChosen
+      ? {
+          shadowColor: '#f59e0b',
+          shadowOpacity: 0.45,
+          shadowRadius: 16,
+          shadowOffset: { width: 0, height: 0 },
+          elevation: 6,
+        }
+      : unlocked && !isLockedOut
+        ? {
+            shadowColor: '#10b981',
+            shadowOpacity: 0.6,
+            shadowRadius: 14,
+            shadowOffset: { width: 0, height: 0 },
+            elevation: 6,
+          }
+        : null;
+
   return (
     <SafePressable
       ref={spotlight.ref}
@@ -881,10 +1226,14 @@ function SkillNode({
         width: NODE_DIAMETER,
         height: NODE_DIAMETER,
         borderRadius: NODE_DIAMETER / 2,
+        opacity: isLockedOut ? 0.35 : 1,
         ...(glow ?? {}),
       }}
       className={`items-center justify-center border-2 px-2 ${borderClass} ${bgClass}`}
     >
+      {/* Pulsing halo for the chosen capstone */}
+      {isChosen ? <ChosenHalo size={NODE_DIAMETER} /> : null}
+
       <Text
         className="text-[10px] font-semibold text-slate-100 text-center leading-tight"
         numberOfLines={3}
@@ -895,9 +1244,67 @@ function SkillNode({
         <View className="mt-1 rounded-full bg-emerald-500/20 px-2 py-0.5">
           <Text className="text-[10px] text-emerald-300">Lv {level}</Text>
         </View>
+      ) : isLockedOut ? (
+        <Text className="text-[9px] text-red-500 mt-1">Locked out</Text>
+      ) : capstoneState === 'available' ? (
+        <Text className="text-[9px] text-amber-600 mt-1">Capstone</Text>
       ) : (
         <Text className="text-[9px] text-slate-500 mt-1">Locked</Text>
       )}
     </SafePressable>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// ChosenHalo — pulsing amber ring around the chosen capstone node
+// ---------------------------------------------------------------------------
+
+function ChosenHalo({ size }: { size: number }) {
+  const pulse = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const anim = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, {
+          toValue: 1,
+          duration: 900,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulse, {
+          toValue: 0,
+          duration: 900,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    anim.start();
+    return () => anim.stop();
+  }, [pulse]);
+
+  const opacity = pulse.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.25, 0.75],
+  });
+  const scale = pulse.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1.0, 1.14],
+  });
+
+  return (
+    <Animated.View
+      pointerEvents="none"
+      style={{
+        position: 'absolute',
+        width: size,
+        height: size,
+        borderRadius: size / 2,
+        borderWidth: 2.5,
+        borderColor: '#f59e0b', // amber-400
+        opacity,
+        transform: [{ scale }],
+      }}
+    />
   );
 }
