@@ -19,13 +19,21 @@ const StatBreakdownRow = t.object('StatBreakdownRow', {
 
 // ---------- Views ----------
 
+// The four core stats — kept in sync with STAT_DEFINITION_SEEDS below. We hard-
+// code the list here because views should not call .iter() (the SpacetimeDB
+// runtime treats it as a forbidden full-table scan in views and surfaces it as
+// an opaque "Error materializing view" on subscribe). Reading by primary key
+// is the only sanctioned shape.
+const CORE_STAT_IDS = ['vigor', 'power', 'focus', 'fortune'] as const;
+
 /**
  * Returns one row per stat for the calling player with the summed total.
- * Always returns a row for all defined stats (from stat_definition), defaulting absent stats to 0.
- * This means the Character panel always shows Vigor/Power/Focus/Fortune even with zero investment.
+ * Always returns a row for all defined stats, defaulting absent stats to 0.
+ * This means the Character panel always shows Vigor/Power/Focus/Fortune even
+ * with zero investment.
  *
- * Implementation: index lookup on player_stat_source by username — no full table scan.
- * The stat_definition scan is over 4 rows (static) and is acceptable.
+ * Implementation: index lookup on player_stat_source by username + primary-
+ * key finds against stat_definition. No iter() — views must avoid it.
  */
 export const myStatTotals = spacetimedb.view(
   { name: 'my_stat_totals', public: true },
@@ -40,11 +48,13 @@ export const myStatTotals = spacetimedb.view(
       totals.set(row.statId, (totals.get(row.statId) ?? 0) + row.amount);
     }
 
-    // Return a row for every defined stat so the UI always shows all four stats.
-    // stat_definition is a small public table (4 rows) — iterating it is safe.
+    // Emit one row per known stat. Existence-check via PK find so an unseeded
+    // stat (e.g. mid-deploy) is silently skipped rather than emitting a row
+    // with a name the client can't match.
     const result: { statId: string; total: number }[] = [];
-    for (const def of ctx.db.statDefinition.iter()) {
-      result.push({ statId: def.statId, total: totals.get(def.statId) ?? 0 });
+    for (const statId of CORE_STAT_IDS) {
+      if (ctx.db.statDefinition.statId.find(statId) === null) continue;
+      result.push({ statId, total: totals.get(statId) ?? 0 });
     }
     return result;
   }

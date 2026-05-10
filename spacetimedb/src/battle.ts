@@ -5,6 +5,7 @@ import { insertNotification, deleteNotificationByRef } from './notifications';
 import { getStatTotals } from './stats';
 import { resolveActionForBattle } from './actions';
 import { CAPABILITY_KEYS, getCapabilityTotal } from './class';
+import { applyResourceYieldBonus } from './structures';
 import { Rng, buildSeed } from './rng';
 import {
   defensiveBattleSession,
@@ -469,9 +470,13 @@ function runGameOverChecks(ctx: any, sessionId: bigint): void {
     const parts = BigInt(Math.floor(5 * Math.max(0, wavesSurvived - 2) * mult));
     const metal = BigInt(Math.floor(2 * Math.max(0, wavesSurvived - 5) * mult));
     const xp = BigInt(Math.floor(20 * wavesSurvived * mult));
+    // Battle rewards route through the resource skill chains so Parts/Metal
+    // skill investment scales combat loot the same as structure income.
+    const partsGain = applyResourceYieldBonus(ctx, p.username, 'parts', parts);
+    const metalGain = applyResourceYieldBonus(ctx, p.username, 'metal', metal);
     grantScrap(ctx, p.username, scrap);
-    grantResource(ctx, p.username, 'parts', parts);
-    grantResource(ctx, p.username, 'metal', metal);
+    grantResource(ctx, p.username, 'parts', partsGain);
+    grantResource(ctx, p.username, 'metal', metalGain);
     grantXp(ctx, p.username, xp);
 
     // Restore location.

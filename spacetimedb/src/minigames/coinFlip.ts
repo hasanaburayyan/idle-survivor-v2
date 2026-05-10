@@ -1,6 +1,7 @@
 import { t, SenderError } from 'spacetimedb/server';
 import { ScheduleAt } from 'spacetimedb';
 import spacetimedb from '../schema';
+import { applyResourceYieldBonus } from '../structures';
 import {
   membersOf,
   requireActiveMinigame,
@@ -99,6 +100,21 @@ function refundPendingBet(ctx: any, sessionId: bigint, username: string): void {
   });
 }
 
+// Per-round Medicine grant — every player who placed a bet earns +1 Medicine
+// on reveal. This is the per-game payout for CoinFlip (the game is continuous,
+// so onEnd never fires; per-round is the natural granularity).
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function grantMedicine(ctx: any, username: string, amount: bigint): void {
+  if (amount <= 0n) return;
+  for (const row of ctx.db.playerResource.player_resource_username.filter(username)) {
+    if (row.resourceId === 'medicine') {
+      ctx.db.playerResource.id.update({ ...row, amount: row.amount + amount });
+      return;
+    }
+  }
+  ctx.db.playerResource.insert({ id: 0n, username, resourceId: 'medicine', amount });
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function revealRound(ctx: any, session: any): void {
   const game = ctx.db.coinFlipGame.sessionId.find(session.id);
@@ -159,6 +175,13 @@ function revealRound(ctx: any, session: any): void {
     for (const l of losers) {
       ctx.db.coinFlipBet.id.update({ ...l, payout: 0n });
     }
+  }
+
+  // Per-round Medicine payout — every bettor earns +1 Medicine regardless of
+  // outcome, then the Medicine skill chain (minor flat + major %) is applied.
+  for (const b of bets) {
+    const amount = applyResourceYieldBonus(ctx, b.username, 'medicine', 1n);
+    grantMedicine(ctx, b.username, amount);
   }
 
   ctx.db.coinFlipGame.sessionId.update({

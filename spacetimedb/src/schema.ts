@@ -90,6 +90,11 @@ import {
   playerCapstoneChoice,
   playerCapability,
 } from './class_tables';
+import {
+  refineryState,
+  smelterJob,
+  gardenJob,
+} from './structures_tables';
 
 const spacetimedb = schema({
   account,
@@ -170,6 +175,9 @@ const spacetimedb = schema({
   playerClassCraftProgress,
   playerCapstoneChoice,
   playerCapability,
+  refineryState,
+  smelterJob,
+  gardenJob,
 });
 
 export default spacetimedb;

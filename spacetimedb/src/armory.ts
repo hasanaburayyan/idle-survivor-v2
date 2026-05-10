@@ -555,27 +555,30 @@ interface RecipeSeed {
   costs: { resourceId: string; amount: bigint }[];
 }
 
+// Non-scrap costs cut ~2.5x from pre-structure-economy values to match the
+// new income rates: Refinery yields ~120 parts/hr, Smelter ~60 metal/hr,
+// Fabric craft is gated on those upstream resources.
 const RECIPE_SEEDS: RecipeSeed[] = [
   {
     recipeId: 'craft_rucksack',
     itemDefId: 'rucksack',
     unlockedAtArmoryLevel: 1,
     sortOrder: 0,
-    costs: [{ resourceId: 'scrap', amount: 200n }, { resourceId: 'fabric', amount: 5n }],
+    costs: [{ resourceId: 'scrap', amount: 200n }, { resourceId: 'fabric', amount: 2n }],
   },
   {
     recipeId: 'craft_handgun',
     itemDefId: 'handgun',
     unlockedAtArmoryLevel: 2,
     sortOrder: 1,
-    costs: [{ resourceId: 'scrap', amount: 500n }, { resourceId: 'parts', amount: 10n }, { resourceId: 'metal', amount: 5n }],
+    costs: [{ resourceId: 'scrap', amount: 500n }, { resourceId: 'parts', amount: 4n }, { resourceId: 'metal', amount: 2n }],
   },
   {
     recipeId: 'craft_armor_vest',
     itemDefId: 'armor_vest',
     unlockedAtArmoryLevel: 3,
     sortOrder: 2,
-    costs: [{ resourceId: 'scrap', amount: 1000n }, { resourceId: 'metal', amount: 15n }, { resourceId: 'fabric', amount: 10n }],
+    costs: [{ resourceId: 'scrap', amount: 1000n }, { resourceId: 'metal', amount: 6n }, { resourceId: 'fabric', amount: 4n }],
   },
 ];
 
@@ -585,38 +588,40 @@ interface UpgradeCostSeed {
   amount: bigint;
 }
 
-// Costs scale roughly geometrically; later levels add new resource gates.
+// Costs scale geometrically; later levels add new resource gates. Non-scrap
+// amounts cut ~2.5x (parts/metal/fabric) and ~5x (medicine) from the original
+// click-economy values to match Refinery/Smelter/Workbench/minigame income.
 const UPGRADE_COST_SEEDS: UpgradeCostSeed[] = [
   { targetLevel: 2, resourceId: 'scrap', amount: 500n },
-  { targetLevel: 2, resourceId: 'parts', amount: 20n },
+  { targetLevel: 2, resourceId: 'parts', amount: 8n },
   { targetLevel: 3, resourceId: 'scrap', amount: 1500n },
-  { targetLevel: 3, resourceId: 'parts', amount: 60n },
-  { targetLevel: 3, resourceId: 'metal', amount: 10n },
+  { targetLevel: 3, resourceId: 'parts', amount: 24n },
+  { targetLevel: 3, resourceId: 'metal', amount: 4n },
   { targetLevel: 4, resourceId: 'scrap', amount: 4000n },
-  { targetLevel: 4, resourceId: 'parts', amount: 150n },
-  { targetLevel: 4, resourceId: 'metal', amount: 30n },
+  { targetLevel: 4, resourceId: 'parts', amount: 60n },
+  { targetLevel: 4, resourceId: 'metal', amount: 12n },
   { targetLevel: 5, resourceId: 'scrap', amount: 10000n },
-  { targetLevel: 5, resourceId: 'parts', amount: 350n },
-  { targetLevel: 5, resourceId: 'metal', amount: 80n },
-  { targetLevel: 5, resourceId: 'fabric', amount: 20n },
+  { targetLevel: 5, resourceId: 'parts', amount: 140n },
+  { targetLevel: 5, resourceId: 'metal', amount: 30n },
+  { targetLevel: 5, resourceId: 'fabric', amount: 8n },
   { targetLevel: 6, resourceId: 'scrap', amount: 25000n },
-  { targetLevel: 6, resourceId: 'metal', amount: 200n },
-  { targetLevel: 6, resourceId: 'fabric', amount: 60n },
+  { targetLevel: 6, resourceId: 'metal', amount: 80n },
+  { targetLevel: 6, resourceId: 'fabric', amount: 24n },
   { targetLevel: 7, resourceId: 'scrap', amount: 60000n },
-  { targetLevel: 7, resourceId: 'metal', amount: 500n },
-  { targetLevel: 7, resourceId: 'fabric', amount: 150n },
+  { targetLevel: 7, resourceId: 'metal', amount: 200n },
+  { targetLevel: 7, resourceId: 'fabric', amount: 60n },
   { targetLevel: 8, resourceId: 'scrap', amount: 150000n },
-  { targetLevel: 8, resourceId: 'metal', amount: 1200n },
-  { targetLevel: 8, resourceId: 'fabric', amount: 400n },
-  { targetLevel: 8, resourceId: 'medicine', amount: 20n },
+  { targetLevel: 8, resourceId: 'metal', amount: 480n },
+  { targetLevel: 8, resourceId: 'fabric', amount: 160n },
+  { targetLevel: 8, resourceId: 'medicine', amount: 4n },
   { targetLevel: 9, resourceId: 'scrap', amount: 400000n },
-  { targetLevel: 9, resourceId: 'metal', amount: 3000n },
-  { targetLevel: 9, resourceId: 'fabric', amount: 1000n },
-  { targetLevel: 9, resourceId: 'medicine', amount: 80n },
+  { targetLevel: 9, resourceId: 'metal', amount: 1200n },
+  { targetLevel: 9, resourceId: 'fabric', amount: 400n },
+  { targetLevel: 9, resourceId: 'medicine', amount: 16n },
   { targetLevel: 10, resourceId: 'scrap', amount: 1000000n },
-  { targetLevel: 10, resourceId: 'metal', amount: 8000n },
-  { targetLevel: 10, resourceId: 'fabric', amount: 2500n },
-  { targetLevel: 10, resourceId: 'medicine', amount: 250n },
+  { targetLevel: 10, resourceId: 'metal', amount: 3200n },
+  { targetLevel: 10, resourceId: 'fabric', amount: 1000n },
+  { targetLevel: 10, resourceId: 'medicine', amount: 50n },
 ];
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -657,34 +662,40 @@ export function seedArmory(ctx: any): void {
         sortOrder: r.sortOrder,
       });
     }
+    // Upsert each cost row: update amount on existing rows (so rebalances land
+    // via runSeedMigration), insert if missing.
     for (const c of r.costs) {
-      let exists = false;
+      let existing = null;
       for (const row of ctx.db.craftingRecipeCost.crafting_recipe_cost_recipe.filter(r.recipeId)) {
         if (row.resourceId === c.resourceId) {
-          exists = true;
+          existing = row;
           break;
         }
       }
-      if (!exists) {
+      if (existing === null) {
         ctx.db.craftingRecipeCost.insert({
           id: 0n,
           recipeId: r.recipeId,
           resourceId: c.resourceId,
           amount: c.amount,
         });
+      } else if (existing.amount !== c.amount) {
+        ctx.db.craftingRecipeCost.id.update({ ...existing, amount: c.amount });
       }
     }
   }
   for (const c of UPGRADE_COST_SEEDS) {
-    let exists = false;
+    let existing = null;
     for (const row of ctx.db.armoryUpgradeCost.armory_upgrade_cost_level.filter(c.targetLevel)) {
       if (row.resourceId === c.resourceId) {
-        exists = true;
+        existing = row;
         break;
       }
     }
-    if (!exists) {
+    if (existing === null) {
       ctx.db.armoryUpgradeCost.insert({ id: 0n, ...c });
+    } else if (existing.amount !== c.amount) {
+      ctx.db.armoryUpgradeCost.id.update({ ...existing, amount: c.amount });
     }
   }
 }

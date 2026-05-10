@@ -42,6 +42,7 @@ import './minigames/coinFlip';
 import './minigames/rhythmTap';
 import { seedCardDefinitions } from './minigames/cardDuel';
 import './minigames/cardDuel';
+import './structures';
 import { seedStatDefinitions, setStatSource, getStatTotals } from './stats';
 import { seedClassSystem, CLASS_TREE_IDS, setCapability, CAPABILITY_KEYS, getCapabilityTotal, hasUnlockedClass } from './class';
 import { buildSeed, Rng } from './rng';
@@ -131,6 +132,20 @@ export {
   myClassCraftTier,
   myCapabilityTotals,
 } from './class';
+export {
+  loadRefinery,
+  startRefinery,
+  claimRefineryParts,
+  startSmelterJob,
+  collectSmelterJob,
+  startGardenJob,
+  collectGardenJob,
+  craftFabric,
+  myRefineryState,
+  mySmelterJobs,
+  myGardenJobs,
+} from './structures';
+import { applyResourceYieldBonus } from './structures';
 
 export default spacetimedb;
 
@@ -174,7 +189,7 @@ const SKILL_SEEDS: SkillSeed[] = [
   {
     skillId: 'unlock_parts',
     name: 'Unlock Parts',
-    description: 'Unlocks the Parts resource and Scavenge for Parts activity.',
+    description: 'Unlocks the Parts resource and the Refinery (build it in The Shelter).',
     maxLevel: 1,
     prerequisiteSkillId: '',
     prerequisiteLevel: 0,
@@ -187,7 +202,7 @@ const SKILL_SEEDS: SkillSeed[] = [
   {
     skillId: 'unlock_metal',
     name: 'Unlock Metal',
-    description: 'Unlocks the Metal resource and Scavenge for Metal activity.',
+    description: 'Unlocks the Metal resource and the Smelter (build it in The Shelter).',
     maxLevel: 1,
     prerequisiteSkillId: 'unlock_parts',
     prerequisiteLevel: 1,
@@ -200,7 +215,7 @@ const SKILL_SEEDS: SkillSeed[] = [
   {
     skillId: 'unlock_fabric',
     name: 'Unlock Fabric',
-    description: 'Unlocks the Fabric resource and Scavenge for Fabric activity.',
+    description: 'Unlocks the Fabric resource and the Craft Fabric recipe at the Workbench.',
     maxLevel: 1,
     prerequisiteSkillId: 'unlock_metal',
     prerequisiteLevel: 1,
@@ -213,7 +228,7 @@ const SKILL_SEEDS: SkillSeed[] = [
   {
     skillId: 'unlock_food',
     name: 'Unlock Food',
-    description: 'Unlocks the Food resource and Scavenge for Food activity.',
+    description: 'Unlocks the Food resource: a small chance to drop from Scavenge plus the Garden multiplier (build it in The Shelter).',
     maxLevel: 1,
     prerequisiteSkillId: 'unlock_fabric',
     prerequisiteLevel: 1,
@@ -226,7 +241,7 @@ const SKILL_SEEDS: SkillSeed[] = [
   {
     skillId: 'unlock_medicine',
     name: 'Unlock Meds',
-    description: 'Unlocks the Meds resource and Scavenge for Meds activity.',
+    description: 'Unlocks the Meds resource — earned from minigame rewards (CoinFlip, RhythmTap, CardDuel).',
     maxLevel: 1,
     prerequisiteSkillId: 'unlock_food',
     prerequisiteLevel: 1,
@@ -346,89 +361,9 @@ const ACTIVITY_SEEDS: ActivitySeed[] = [
     sortOrder: 0,
   },
   {
-    activityId: 'scavenge_for_parts',
-    name: 'Scavenge for Parts',
-    description: 'Break scrap down into parts.',
-    icon: '🔩',
-    locationKey: 'the_wastes',
-    kind: 'scavenge',
-    maxUses: -1,
-    prerequisiteSkillId: 'unlock_parts',
-    prerequisiteSkillLevel: 1,
-    progressTarget: 0n,
-    maxPerClick: 0n,
-    yieldResourceId: 'parts',
-    skillChainPrefix: 'parts',
-    sortOrder: 2,
-  },
-  {
-    activityId: 'scavenge_for_metal',
-    name: 'Scavenge for Metal',
-    description: 'Refine parts into usable metal.',
-    icon: '🪙',
-    locationKey: 'the_wastes',
-    kind: 'scavenge',
-    maxUses: -1,
-    prerequisiteSkillId: 'unlock_metal',
-    prerequisiteSkillLevel: 1,
-    progressTarget: 0n,
-    maxPerClick: 0n,
-    yieldResourceId: 'metal',
-    skillChainPrefix: 'metal',
-    sortOrder: 3,
-  },
-  {
-    activityId: 'scavenge_for_fabric',
-    name: 'Scavenge for Fabric',
-    description: 'Weave salvaged fibers into fabric.',
-    icon: '🧵',
-    locationKey: 'the_wastes',
-    kind: 'scavenge',
-    maxUses: -1,
-    prerequisiteSkillId: 'unlock_fabric',
-    prerequisiteSkillLevel: 1,
-    progressTarget: 0n,
-    maxPerClick: 0n,
-    yieldResourceId: 'fabric',
-    skillChainPrefix: 'fabric',
-    sortOrder: 4,
-  },
-  {
-    activityId: 'scavenge_for_food',
-    name: 'Scavenge for Food',
-    description: 'Scrounge and preserve edible rations.',
-    icon: '🍖',
-    locationKey: 'the_wastes',
-    kind: 'scavenge',
-    maxUses: -1,
-    prerequisiteSkillId: 'unlock_food',
-    prerequisiteSkillLevel: 1,
-    progressTarget: 0n,
-    maxPerClick: 0n,
-    yieldResourceId: 'food',
-    skillChainPrefix: 'food',
-    sortOrder: 5,
-  },
-  {
-    activityId: 'scavenge_for_medicine',
-    name: 'Scavenge for Medicine',
-    description: 'Synthesize the last of the old-world medicine.',
-    icon: '💊',
-    locationKey: 'the_wastes',
-    kind: 'scavenge',
-    maxUses: -1,
-    prerequisiteSkillId: 'unlock_medicine',
-    prerequisiteSkillLevel: 1,
-    progressTarget: 0n,
-    maxPerClick: 0n,
-    yieldResourceId: 'medicine',
-    skillChainPrefix: 'medicine',
-    sortOrder: 6,
-  },
-  {
     activityId: 'build_armory',
     name: 'Build Armory',
-    description: 'Pour scrap and parts into the armory frame until it stands.',
+    description: 'Pour scrap into the armory frame until it stands.',
     icon: '⚒',
     locationKey: 'the_shelter',
     kind: 'build_progress',
@@ -440,6 +375,54 @@ const ACTIVITY_SEEDS: ActivitySeed[] = [
     yieldResourceId: '',
     skillChainPrefix: '',
     sortOrder: 1,
+  },
+  {
+    activityId: 'build_refinery',
+    name: 'Build Refinery',
+    description: 'Pour scrap into the refinery frame until it stands.',
+    icon: '🔧',
+    locationKey: 'the_shelter',
+    kind: 'build_progress',
+    maxUses: 1,
+    prerequisiteSkillId: 'unlock_parts',
+    prerequisiteSkillLevel: 1,
+    progressTarget: 1500n,
+    maxPerClick: 150n,
+    yieldResourceId: '',
+    skillChainPrefix: '',
+    sortOrder: 2,
+  },
+  {
+    activityId: 'build_smelter',
+    name: 'Build Smelter',
+    description: 'Pour scrap into the smelter frame until it stands.',
+    icon: '🔥',
+    locationKey: 'the_shelter',
+    kind: 'build_progress',
+    maxUses: 1,
+    prerequisiteSkillId: 'unlock_metal',
+    prerequisiteSkillLevel: 1,
+    progressTarget: 4000n,
+    maxPerClick: 400n,
+    yieldResourceId: '',
+    skillChainPrefix: '',
+    sortOrder: 3,
+  },
+  {
+    activityId: 'build_garden',
+    name: 'Build Garden',
+    description: 'Pour scrap into the garden frame until it stands.',
+    icon: '🌱',
+    locationKey: 'the_shelter',
+    kind: 'build_progress',
+    maxUses: 1,
+    prerequisiteSkillId: 'unlock_food',
+    prerequisiteSkillLevel: 1,
+    progressTarget: 4000n,
+    maxPerClick: 400n,
+    yieldResourceId: '',
+    skillChainPrefix: '',
+    sortOrder: 4,
   },
 ];
 
@@ -552,6 +535,36 @@ const STRUCTURE_SEEDS: StructureSeed[] = [
     buildActivityId: '',
     sortOrder: 2,
   },
+  {
+    structureId: 'refinery',
+    name: 'Refinery',
+    description:
+      'Refines scrap into parts on a timer. Queue a job, come back when it is done.',
+    icon: '🔧',
+    locationKey: 'the_shelter',
+    buildActivityId: 'build_refinery',
+    sortOrder: 3,
+  },
+  {
+    structureId: 'smelter',
+    name: 'Smelter',
+    description:
+      'Smelts scrap and parts into metal. Slower than the refinery, but the only way to get metal.',
+    icon: '🔥',
+    locationKey: 'the_shelter',
+    buildActivityId: 'build_smelter',
+    sortOrder: 4,
+  },
+  {
+    structureId: 'garden',
+    name: 'Garden',
+    description:
+      'Multiplies stored food. Harvest within the Ripe window for a bonus tier; Stale yields a smaller (but still positive) return.',
+    icon: '🌱',
+    locationKey: 'the_shelter',
+    buildActivityId: 'build_garden',
+    sortOrder: 5,
+  },
 ];
 
 interface StructureUpgradeSeed {
@@ -597,31 +610,63 @@ const STRUCTURE_UPGRADE_SEEDS: StructureUpgradeSeed[] = [
     yieldPerLevelPer100: 20,
     sortOrder: 1,
   },
-  ...applyUpgradeSeeds(),
+  {
+    upgradeId: 'refinery_capacity',
+    structureId: 'refinery',
+    name: 'Refinery Capacity',
+    description:
+      '+20 scrap capacity per level. Larger loads run longer between visits.',
+    kind: 'capacity',
+    targetActivityId: '',
+    maxLevel: 9,
+    costBase: 100n,
+    costGrowthPer100: 175,
+    yieldPerLevelPer100: 20,
+    sortOrder: 0,
+  },
+  {
+    upgradeId: 'refinery_efficiency',
+    structureId: 'refinery',
+    name: 'Refinery Efficiency',
+    description:
+      '+25% Parts yield per level on each refinery job.',
+    kind: 'efficiency',
+    targetActivityId: '',
+    maxLevel: 4,
+    costBase: 250n,
+    costGrowthPer100: 175,
+    yieldPerLevelPer100: 25,
+    sortOrder: 1,
+  },
+  {
+    upgradeId: 'smelter_efficiency',
+    structureId: 'smelter',
+    name: 'Smelter Efficiency',
+    description:
+      '+25% Metal yield per level on each smelter job.',
+    kind: 'efficiency',
+    targetActivityId: '',
+    maxLevel: 4,
+    costBase: 1000n,
+    costGrowthPer100: 175,
+    yieldPerLevelPer100: 25,
+    sortOrder: 0,
+  },
+  {
+    upgradeId: 'garden_efficiency',
+    structureId: 'garden',
+    name: 'Garden Efficiency',
+    description:
+      '+25% Food multiplier per level on each garden harvest.',
+    kind: 'efficiency',
+    targetActivityId: '',
+    maxLevel: 4,
+    costBase: 1000n,
+    costGrowthPer100: 175,
+    yieldPerLevelPer100: 25,
+    sortOrder: 0,
+  },
 ];
-
-function applyUpgradeSeeds(): StructureUpgradeSeed[] {
-  const activities: { key: string; label: string; cost: bigint }[] = [
-    { key: 'parts', label: 'Scavenge for Parts', cost: 500n },
-    { key: 'metal', label: 'Scavenge for Metal', cost: 2000n },
-    { key: 'fabric', label: 'Scavenge for Fabric', cost: 8000n },
-    { key: 'food', label: 'Scavenge for Food', cost: 32000n },
-    { key: 'medicine', label: 'Scavenge for Medicine', cost: 128000n },
-  ];
-  return activities.map((a, i) => ({
-    upgradeId: `workbench_apply_${a.key}`,
-    structureId: 'workbench',
-    name: `Apply ${a.label}`,
-    description: `Unlocks ${a.label} so it can be placed in the workbench automation slot.`,
-    kind: 'unlock_activity',
-    targetActivityId: `scavenge_for_${a.key}`,
-    maxLevel: 1,
-    costBase: a.cost,
-    costGrowthPer100: 100,
-    yieldPerLevelPer100: 0,
-    sortOrder: 2 + i,
-  }));
-}
 
 interface TutorialStepSeed {
   stepId: string;
@@ -680,9 +725,9 @@ const TUTORIAL_STEP_SEEDS: TutorialStepSeed[] = [
     prereqStepId: 'first_level_up',
     triggerCondition: { tag: 'chained' },
     headline: 'Spend your point.',
-    body: 'A skill point is yours to spend. Tap Unlock Parts — it opens the next resource and starts the chain that follows.',
+    body: 'A skill point is yours to spend. Tap Unlock Shelter — a roof of your own is the gateway to every workshop and farm you\'ll build later.',
     primaryCtaLabel: 'Continue.',
-    spotlightTargetKey: 'skill_node:unlock_parts',
+    spotlightTargetKey: 'skill_node:unlock_shelter',
     tone: { tag: 'meta' },
   },
   {
@@ -691,7 +736,7 @@ const TUTORIAL_STEP_SEEDS: TutorialStepSeed[] = [
     prereqStepId: 'first_skill_spend',
     triggerCondition: { tag: 'skillPurchased', value: { skillId: 'unlock_shelter', minLevel: 1 } },
     headline: 'Shelter, in theory.',
-    body: "You unlocked the Shelter. That puts a Build Shelter activity on the Wastes — once you've built it, you can travel inside. There's room in there for a Workbench, and a Workbench will eventually automate your scavenging while you focus on bigger things. Build it when you're ready.",
+    body: "You unlocked the Shelter. That puts a Build Shelter activity on the Wastes — pour scrap into it until it stands. Inside, you'll have room for a Workbench, a Refinery, a Smelter, a Garden — every later resource lives behind a wall you build yourself.",
     primaryCtaLabel: 'Got it.',
     spotlightTargetKey: '',
     tone: { tag: 'inCharacter' },
@@ -702,7 +747,7 @@ const TUTORIAL_STEP_SEEDS: TutorialStepSeed[] = [
     prereqStepId: 'first_skill_spend',
     triggerCondition: { tag: 'skillPurchased', value: { skillId: 'unlock_parts', minLevel: 1 } },
     headline: 'Parts.',
-    body: 'Bolts, gears, broken machinery. Worth more than scrap to anyone who can fix things. There\'s a new activity in the Wastes for finding them.',
+    body: "Bolts, gears, broken machinery — worth more than scrap to anyone who can fix things. With this unlock, the Refinery is buildable in your Shelter. Load it with scrap, hit Refine, and Parts tick out on a 30-second timer. Claim them whenever you want; the buffer keeps working.",
     primaryCtaLabel: 'Got it.',
     spotlightTargetKey: '',
     tone: { tag: 'inCharacter' },
@@ -713,7 +758,7 @@ const TUTORIAL_STEP_SEEDS: TutorialStepSeed[] = [
     prereqStepId: 'unlock_parts_taken',
     triggerCondition: { tag: 'skillPurchased', value: { skillId: 'unlock_metal', minLevel: 1 } },
     headline: 'Metal.',
-    body: 'Heavier than scrap and harder to come by. Useful for building.',
+    body: "Heavier than scrap and harder to come by. With this unlock, the Smelter is buildable in your Shelter. It eats scrap and parts together and gives back metal — slower than the Refinery, but the only path to metal there is.",
     primaryCtaLabel: 'Got it.',
     spotlightTargetKey: '',
     tone: { tag: 'inCharacter' },
@@ -724,7 +769,7 @@ const TUTORIAL_STEP_SEEDS: TutorialStepSeed[] = [
     prereqStepId: 'unlock_metal_taken',
     triggerCondition: { tag: 'skillPurchased', value: { skillId: 'unlock_fabric', minLevel: 1 } },
     headline: 'Fabric.',
-    body: 'Scraps of cloth and tarp. People will need it before the cold.',
+    body: "Scraps of cloth and tarp. With this unlock, your Workbench gains a Craft Fabric recipe — instant turnover. Spend scrap, parts, and metal; receive fabric, single or by the ten.",
     primaryCtaLabel: 'Got it.',
     spotlightTargetKey: '',
     tone: { tag: 'inCharacter' },
@@ -735,7 +780,7 @@ const TUTORIAL_STEP_SEEDS: TutorialStepSeed[] = [
     prereqStepId: 'unlock_fabric_taken',
     triggerCondition: { tag: 'skillPurchased', value: { skillId: 'unlock_food', minLevel: 1 } },
     headline: 'Food.',
-    body: "Canned. Mostly. You'll learn to take what you can.",
+    body: "Canned. Mostly. With this unlock, food drops occasionally from Scavenging — a small chance per click — and the Garden becomes buildable in your Shelter. The Garden multiplies what you plant; harvest within the Ripe window for the bigger payout.",
     primaryCtaLabel: 'Got it.',
     spotlightTargetKey: '',
     tone: { tag: 'inCharacter' },
@@ -746,7 +791,7 @@ const TUTORIAL_STEP_SEEDS: TutorialStepSeed[] = [
     prereqStepId: 'unlock_food_taken',
     triggerCondition: { tag: 'skillPurchased', value: { skillId: 'unlock_medicine', minLevel: 1 } },
     headline: 'Medicine.',
-    body: "Painkillers, antibiotics, the occasional miracle. You've found nearly everything this stretch of wastes has to offer.",
+    body: "Painkillers, antibiotics, the occasional miracle. With this unlock, every minigame yields Meds — CoinFlip, RhythmTap, CardDuel. There's no scavenge for it, and there's no daily cap; the only way to stockpile is to play.",
     primaryCtaLabel: 'Got it.',
     spotlightTargetKey: '',
     tone: { tag: 'inCharacter' },
@@ -757,9 +802,9 @@ const TUTORIAL_STEP_SEEDS: TutorialStepSeed[] = [
     prereqStepId: 'unlock_shelter_taken',
     triggerCondition: { tag: 'activityPerformed', value: { activityId: 'build_shelter', minTimes: 1 } },
     headline: 'Shelter, built.',
-    body: "Walls, a roof, a place to keep what you've gathered. Travel here when you can — the Workbench you build inside is where automating your scavenging starts.",
+    body: "Walls, a roof, a place to keep what you've gathered. Open the Shelter tab — the floor plan shows every structure you can build here. The Workbench is the first one; the Refinery, Smelter, and Garden each need their own resource unlocked first.",
     primaryCtaLabel: 'Got it.',
-    spotlightTargetKey: 'tab:travel',
+    spotlightTargetKey: 'tab:shelter',
     tone: { tag: 'inCharacter' },
   },
   {
@@ -871,13 +916,154 @@ export const onConnect = spacetimedb.clientConnected(_ctx => {});
 // initialized DB without --clear-database. Safe to call repeatedly. Anyone
 // can call; the seed functions themselves only insert missing rows.
 export const runSeedMigration = spacetimedb.reducer(ctx => {
+  seedActivityDefinitions(ctx);
+  seedStructureDefinitions(ctx);
   seedSkillTrees(ctx);
   seedClassSystem(ctx);
   seedArmory(ctx);
   seedActions(ctx);
   seedStatDefinitions(ctx);
   seedTutorialSteps(ctx);
+  seedStructureUpgrades(ctx);
+  purgeLegacyAcquisition(ctx);
+  resetPlayerLocations(ctx);
 });
+
+// Travel UI is gone; with no way to switch locations, any player whose
+// playerState.location is anything other than 'the_wastes' would be locked
+// out of the Scavenge reducer (location check). Reset every player to the
+// wastes. Idempotent — no-op when already there.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function resetPlayerLocations(ctx: any) {
+  for (const ps of ctx.db.playerState.iter()) {
+    if (ps.location !== 'the_wastes') {
+      ctx.db.playerState.username.update({
+        ...ps,
+        location: 'the_wastes',
+        updatedAt: ctx.timestamp,
+      });
+    }
+  }
+}
+
+// Upsert activity rows so description / cost / icon edits land via
+// runSeedMigration. Insert-only behaviour in init() means existing live DBs
+// would otherwise miss copy fixes.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function seedActivityDefinitions(ctx: any) {
+  for (const seed of ACTIVITY_SEEDS) {
+    const existing = ctx.db.activityDefinition.activityId.find(seed.activityId);
+    if (existing === null) {
+      ctx.db.activityDefinition.insert(seed);
+    } else {
+      ctx.db.activityDefinition.activityId.update({ ...existing, ...seed });
+    }
+  }
+}
+
+// Same for structure definitions (icon / description / sortOrder edits).
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function seedStructureDefinitions(ctx: any) {
+  for (const seed of STRUCTURE_SEEDS) {
+    const existing = ctx.db.structureDefinition.structureId.find(seed.structureId);
+    if (existing === null) {
+      ctx.db.structureDefinition.insert(seed);
+    } else {
+      ctx.db.structureDefinition.structureId.update({ ...existing, ...seed });
+    }
+  }
+}
+
+// Per-resource Scavenge variants (scavenge_for_parts/metal/fabric/food/medicine)
+// were replaced by structure-based acquisition (Refinery, Smelter, Workbench
+// recipe, Garden, minigame rewards). This drops the now-orphaned activity defs,
+// their workbench-apply unlock upgrades, and any player rows that still
+// reference them. Idempotent: rows that no longer exist are no-ops.
+const LEGACY_SCAVENGE_ACTIVITY_IDS = [
+  'scavenge_for_parts',
+  'scavenge_for_metal',
+  'scavenge_for_fabric',
+  'scavenge_for_food',
+  'scavenge_for_medicine',
+] as const;
+const LEGACY_WORKBENCH_APPLY_UPGRADE_IDS = [
+  'workbench_apply_parts',
+  'workbench_apply_metal',
+  'workbench_apply_fabric',
+  'workbench_apply_food',
+  'workbench_apply_medicine',
+] as const;
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function purgeLegacyAcquisition(ctx: any) {
+  const obsoleteActivities = new Set<string>(LEGACY_SCAVENGE_ACTIVITY_IDS);
+  const obsoleteUpgrades = new Set<string>(LEGACY_WORKBENCH_APPLY_UPGRADE_IDS);
+
+  for (const id of obsoleteActivities) {
+    if (ctx.db.activityDefinition.activityId.find(id) !== null) {
+      ctx.db.activityDefinition.activityId.delete(id);
+    }
+  }
+  for (const id of obsoleteUpgrades) {
+    if (ctx.db.structureUpgradeDefinition.upgradeId.find(id) !== null) {
+      ctx.db.structureUpgradeDefinition.upgradeId.delete(id);
+    }
+  }
+
+  // Drop any player progress rows tied to obsolete activities.
+  const obsoletePlayerActivityIds: bigint[] = [];
+  for (const row of ctx.db.playerActivity.iter()) {
+    if (obsoleteActivities.has(row.activityId)) {
+      obsoletePlayerActivityIds.push(row.id);
+    }
+  }
+  for (const id of obsoletePlayerActivityIds) {
+    ctx.db.playerActivity.id.delete(id);
+  }
+
+  const obsoletePlayerUpgradeIds: bigint[] = [];
+  for (const row of ctx.db.playerStructureUpgrade.iter()) {
+    if (obsoleteUpgrades.has(row.upgradeId)) {
+      obsoletePlayerUpgradeIds.push(row.id);
+    }
+  }
+  for (const id of obsoletePlayerUpgradeIds) {
+    ctx.db.playerStructureUpgrade.id.delete(id);
+  }
+
+  // Workbench rows that had an old activity slotted lose their slot.
+  for (const row of ctx.db.playerStructure.iter()) {
+    if (obsoleteActivities.has(row.slottedActivityId)) {
+      ctx.db.playerStructure.id.update({ ...row, slottedActivityId: '' });
+    }
+  }
+
+  // Cancel any in-flight automation ticks targeting an obsolete activity.
+  const obsoleteTickIds: bigint[] = [];
+  for (const row of ctx.db.automationTick.iter()) {
+    if (obsoleteActivities.has(row.activityId)) {
+      obsoleteTickIds.push(row.scheduledId);
+    }
+  }
+  for (const id of obsoleteTickIds) {
+    ctx.db.automationTick.scheduledId.delete(id);
+  }
+}
+
+// Insert-or-update so new upgrade kinds (e.g. refinery_capacity) and rebalances
+// to existing rows (sortOrder, costBase, description copy) land on already-
+// initialized DBs without --clear-database.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function seedStructureUpgrades(ctx: any) {
+  for (const seed of STRUCTURE_UPGRADE_SEEDS) {
+    const existing = ctx.db.structureUpgradeDefinition.upgradeId.find(seed.upgradeId);
+    if (existing === null) {
+      ctx.db.structureUpgradeDefinition.insert(seed);
+    } else {
+      ctx.db.structureUpgradeDefinition.upgradeId.update({ ...existing, ...seed });
+    }
+  }
+}
 
 // Tutorial seeds are upserted (not insert-only) so copy edits, prereq
 // re-wires, and new steps land on existing DBs via runSeedMigration.
@@ -1064,6 +1250,47 @@ export const myVisibleActivities = spacetimedb.view(
         ps.location
       ),
     ].filter(def => isActivityVisible(ctx, s.username, def, ps.location));
+  }
+);
+
+// Powers the new ScavengePanel — same filtering as myVisibleActivities except
+// location-agnostic. Shelter-located builds additionally require build_shelter
+// to be done so they don't surface before the player has a shelter to put
+// them in. Returns scavenge + every build the player has actually unlocked
+// and not yet completed.
+//
+// We must NOT use .iter() in a view body (SpacetimeDB surfaces it as an
+// opaque "Error materializing view"). All activities are at one of two
+// locations, so we union the two location-indexed queries.
+export const myAvailableActivities = spacetimedb.view(
+  { name: 'my_available_activities', public: true },
+  t.array(activityDefinition.rowType),
+  ctx => {
+    const s = ctx.db.session.identity.find(ctx.sender);
+    if (s === null) return [];
+    const username = s.username;
+    const shelterRow = findPlayerActivity(ctx, username, 'build_shelter');
+    const shelterBuilt = (shelterRow?.timesUsed ?? 0) >= 1;
+    const candidates = [
+      ...ctx.db.activityDefinition.activity_definition_location.filter('the_wastes'),
+      ...ctx.db.activityDefinition.activity_definition_location.filter('the_shelter'),
+    ];
+    return candidates.filter(def => {
+      if (def.prerequisiteSkillId !== '') {
+        if (skillLevel(ctx, username, def.prerequisiteSkillId) < def.prerequisiteSkillLevel) {
+          return false;
+        }
+      }
+      if (def.maxUses !== -1) {
+        const pa = findPlayerActivity(ctx, username, def.activityId);
+        if ((pa?.timesUsed ?? 0) >= def.maxUses) return false;
+      }
+      // Hide shelter-located builds (Workbench / Refinery / etc.) until the
+      // shelter itself is up — otherwise the player sees a build pad they
+      // can't use yet.
+      if (def.locationKey === 'the_shelter' && !shelterBuilt) return false;
+      return true;
+    });
   }
 );
 
@@ -1627,10 +1854,13 @@ function applyFortuneProc(
     if (cascadeBonus > 0n) addResource(ctx, username, resourceId, cascadeBonus);
   }
 
-  // Quartermaster drop — on proc, small chance to award one 'parts' as bonus loot.
+  // Quartermaster drop — on proc, small chance to award one 'parts' as bonus
+  // loot. Routed through the Parts skill chain so the +flat / +% multipliers
+  // apply, matching every other parts-grant surface in the game.
   const dropChanceBp = getCapabilityTotal(ctx, username, CAPABILITY_KEYS.FORTUNE_PROC_DROPS_ITEM_BP);
   if (dropChanceBp > 0 && rng.uniform() < dropChanceBp / 10000) {
-    addResource(ctx, username, 'parts', 1n);
+    const partsGain = applyResourceYieldBonus(ctx, username, 'parts', 1n);
+    addResource(ctx, username, 'parts', partsGain);
   }
 
   // Echo (Wanderer capstone) — chance to grant a parallel proc to a random
@@ -1888,6 +2118,29 @@ function performScavengeActivity(
   }
 
   addResource(ctx, username, def.yieldResourceId, gain);
+
+  // Food trickle — only fires on base scrap scavenges, gated on Food discovery.
+  // 1% chance per tick to yield 1 Food. Deterministic per (timestamp, username,
+  // activityId, actionCount) so re-running the reducer is reproducible.
+  if (
+    def.yieldResourceId === 'scrap' &&
+    skillLevel(ctx, username, 'unlock_food') >= 1
+  ) {
+    const seed = buildSeed([
+      ctx.timestamp.microsSinceUnixEpoch,
+      username,
+      activityId,
+      ps.actionCount,
+      'food_trickle',
+    ]);
+    const rng = new Rng(seed);
+    if (rng.uniform() < 0.01) {
+      // Food skill chain (minor flat +2/lvl + major +75%/lvl) applied to the
+      // 1-food proc so trickle scales with skill investment.
+      const foodGain = applyResourceYieldBonus(ctx, username, 'food', 1n);
+      addResource(ctx, username, 'food', foodGain);
+    }
+  }
 
   const myMembership = ctx.db.groupMember.username.find(username);
   if (myMembership !== null) {

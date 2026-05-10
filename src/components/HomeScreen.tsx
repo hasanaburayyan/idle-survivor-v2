@@ -1,14 +1,13 @@
 import { useState } from 'react';
-import { Text, View } from 'react-native';
+import { Text, useWindowDimensions, View } from 'react-native';
 import SafePressable from './SafePressable';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { reducers, tables } from '../module_bindings';
 import { useReducer, useTable } from 'spacetimedb/react';
 import { xpToNextLevel } from '../lib/progression';
 import GroupPanel from './GroupPanel';
-import TabBar, { type TabKey } from './TabBar';
-import ActivitiesTab from './ActivitiesTab';
-import TravelTab from './TravelTab';
+import Sidebar, { type SidebarTabKey } from './Sidebar';
+import ScavengePanel from './ScavengePanel';
 import ShelterTab from './ShelterTab';
 import SkillTreeTab from './SkillTreeTab';
 import CharacterTab from './CharacterTab';
@@ -46,7 +45,9 @@ function HomeScreenInner({ username }: HomeScreenProps) {
   const logout = useReducer(reducers.logout);
   const cheatLevel = useReducer(reducers.cheatAddLevel);
   const cheatScrap = useReducer(reducers.cheatAddScrap);
-  const [tab, setTab] = useState<TabKey>('activities');
+  const [tab, setTab] = useState<SidebarTabKey>('shelter');
+  const { width } = useWindowDimensions();
+  const isWide = width >= 768;
   const [devOpen, setDevOpen] = useState(false);
 
   const playerLevel = ps?.playerLevel ?? 0;
@@ -138,18 +139,29 @@ function HomeScreenInner({ username }: HomeScreenProps) {
         </View>
       </View>
 
-      <View className="flex-1">
-        {tab === 'activities' ? <ActivitiesTab /> : null}
-        {tab === 'travel' ? <TravelTab /> : null}
-        {tab === 'shelter' ? <ShelterTab /> : null}
-        {tab === 'skill_tree' ? <SkillTreeTab /> : null}
-        {tab === 'character' ? <CharacterTab /> : null}
-        {tab === 'social' ? <SocialTab /> : null}
-        {tab === 'minigames' ? <MinigamesTab /> : null}
-        {tab === 'chat' ? <ChatTab username={username} /> : null}
-      </View>
-
-      <TabBar active={tab} onChange={setTab} />
+      {isWide ? (
+        <View className="flex-1 flex-row">
+          <View className="w-72 border-r border-slate-800 bg-slate-950">
+            <ScavengePanel />
+          </View>
+          <View className="flex-1">
+            <ActivePane tab={tab} username={username} />
+          </View>
+          <View className="w-24">
+            <Sidebar active={tab} onChange={setTab} layout="vertical" />
+          </View>
+        </View>
+      ) : (
+        <View className="flex-1">
+          <View className="border-b border-slate-800 bg-slate-950" style={{ maxHeight: 280 }}>
+            <ScavengePanel />
+          </View>
+          <View className="flex-1">
+            <ActivePane tab={tab} username={username} />
+          </View>
+          <Sidebar active={tab} onChange={setTab} layout="horizontal" />
+        </View>
+      )}
       <GroupPanel username={username} />
       <MinigameModal />
       <TutorialPopup />
@@ -157,4 +169,21 @@ function HomeScreenInner({ username }: HomeScreenProps) {
       {inBattle ? <DefensiveBattleScreen username={username} /> : null}
     </SafeAreaView>
   );
+}
+
+function ActivePane({ tab, username }: { tab: SidebarTabKey; username: string }) {
+  switch (tab) {
+    case 'shelter':
+      return <ShelterTab />;
+    case 'skill_tree':
+      return <SkillTreeTab />;
+    case 'character':
+      return <CharacterTab />;
+    case 'social':
+      return <SocialTab />;
+    case 'minigames':
+      return <MinigamesTab />;
+    case 'chat':
+      return <ChatTab username={username} />;
+  }
 }

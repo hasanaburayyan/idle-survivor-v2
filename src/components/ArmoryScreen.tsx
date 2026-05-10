@@ -3,6 +3,7 @@ import { Modal, ScrollView, Text, View } from 'react-native';
 import { useReducer, useTable } from 'spacetimedb/react';
 import { reducers, tables } from '../module_bindings';
 import SafePressable from './SafePressable';
+import UpgradeButton from './UpgradeButton';
 import LoadoutPanel from './LoadoutPanel';
 
 type ArmoryTab = 'craft' | 'loadout';
@@ -233,19 +234,23 @@ export default function ArmoryScreen({ onBack }: ArmoryScreenProps) {
                   );
                 })}
               </View>
-              <SafePressable
-                onPress={onUpgrade}
-                disabled={busy !== null || !canAffordUpgrade}
-                className={`rounded-lg py-2 items-center ${canAffordUpgrade && busy === null ? 'bg-emerald-500' : 'bg-slate-800'}`}
-              >
+              <View className="flex-row items-center justify-between mt-1">
                 <Text
-                  className={`text-xs font-medium ${canAffordUpgrade && busy === null ? 'text-slate-950' : 'text-slate-500'}`}
+                  className={`text-xs font-medium ${
+                    canAffordUpgrade && busy === null ? 'text-emerald-300' : 'text-slate-500'
+                  }`}
                 >
                   {busy === 'upgrade'
                     ? 'Upgrading…'
                     : `Upgrade to Level ${level + 1}`}
                 </Text>
-              </SafePressable>
+                <UpgradeButton
+                  onPress={onUpgrade}
+                  disabled={!canAffordUpgrade}
+                  busy={busy === 'upgrade'}
+                  accessibilityLabel={`Upgrade Armory to level ${level + 1}`}
+                />
+              </View>
             </>
           )}
         </View>

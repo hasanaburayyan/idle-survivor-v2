@@ -99,10 +99,15 @@ const rhythmTapHandler: MinigameHandler = {
       placement: i + 1,
       finalScore: BigInt(s.hits),
     }));
-    const rewards: MinigameEndResult['rewards'] = scores.map(s => ({
-      username: s.username,
-      rewards: [{ kind: 'xp', amount: BigInt(s.hits) * 5n }],
-    }));
+    // Medicine: floor(hits / 10). A perfect chart of ~50 notes → 5 Medicine.
+    const rewards: MinigameEndResult['rewards'] = scores.map(s => {
+      const medicine = BigInt(Math.floor(s.hits / 10));
+      const r: import('./registry').Reward[] = [{ kind: 'xp', amount: BigInt(s.hits) * 5n }];
+      if (medicine > 0n) {
+        r.push({ kind: 'item', resourceId: 'medicine', quantity: medicine });
+      }
+      return { username: s.username, rewards: r };
+    });
     return { placements, rewards };
   },
 };

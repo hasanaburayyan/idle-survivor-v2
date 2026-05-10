@@ -4,6 +4,7 @@ import SafePressable from './SafePressable';
 import { reducers, tables } from '../module_bindings';
 import { useReducer, useTable } from 'spacetimedb/react';
 import type { StructureDef, StructureRow } from './StructureCard';
+import WorkbenchRecipesPanel from './shelter/WorkbenchRecipesPanel';
 
 interface StructureUpgradeDef {
   upgradeId: string;
@@ -138,6 +139,8 @@ export default function StructureDetailScreen({
 
       <ScrollView contentContainerStyle={{ padding: 16, gap: 12 }}>
         <Text className="text-xs text-slate-400">{def.description}</Text>
+
+        {def.structureId === 'workbench' ? <WorkbenchRecipesPanel /> : null}
 
         <View className="rounded-xl bg-slate-950 border border-slate-800 px-4 py-3">
           <Text className="text-[11px] uppercase tracking-widest text-slate-500">

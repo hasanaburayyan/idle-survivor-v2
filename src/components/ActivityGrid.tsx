@@ -37,10 +37,30 @@ export interface ActivityStateRow {
 export function ActivityGrid({
   activities,
   activityState,
+  layout = 'grid',
 }: {
   activities: ActivityDef[];
   activityState: readonly ActivityStateRow[];
+  // 'grid' = 3-up tiled (used in narrow construction-site panels). 'stack' =
+  // one row per activity at full width (used in the always-visible Scavenge
+  // panel where horizontal space is too tight for a grid).
+  layout?: 'grid' | 'stack';
 }) {
+  if (layout === 'stack') {
+    return (
+      <View className="gap-2">
+        {activities.map(def => {
+          const state = activityState.find(s => s.activityId === def.activityId);
+          return (
+            <View key={def.activityId} className="flex-row">
+              <ActivityCell def={def} state={state} />
+            </View>
+          );
+        })}
+      </View>
+    );
+  }
+
   const rows: ActivityDef[][] = [];
   for (let i = 0; i < activities.length; i += 3) {
     rows.push(activities.slice(i, i + 3));

@@ -24,7 +24,10 @@ import ClassEquipModal, {
 } from './ClassEquipModal';
 
 const NODE_DIAMETER = 96;
-const CANVAS_PADDING = 220;
+// Edge padding around the cloud of nodes. Kept tight — the visible canvas
+// already centres on a meaningful node via auto-pan, so wide padding just
+// makes the tree feel sparse on first paint.
+const CANVAS_PADDING = 80;
 const MIN_SCALE = 0.5;
 const MAX_SCALE = 2.0;
 const WHEEL_STEP = 0.1;
@@ -442,10 +445,18 @@ export default function SkillTreeTab() {
   const viewport = useRef({ width: 0, height: 0 });
 
   const onContainerLayout = (e: LayoutChangeEvent) => {
-    viewport.current = {
+    const next = {
       width: e.nativeEvent.layout.width,
       height: e.nativeEvent.layout.height,
     };
+    const prevW = viewport.current.width;
+    viewport.current = next;
+    // First time we learn the viewport's actual size, run the auto-centre we
+    // queued at mount. (Pre-layout the maths can't compute a target offset.)
+    if (prevW === 0 && next.width > 0 && pendingCenter.current) {
+      pendingCenter.current();
+      pendingCenter.current = null;
+    }
   };
 
   const clampX = (x: number, s: number): number => {
@@ -460,6 +471,63 @@ export default function SkillTreeTab() {
     if (contentH <= vpH) return (vpH - contentH) / 2;
     return Math.min(0, Math.max(vpH - contentH, y));
   };
+
+  // Refs for the auto-centre behaviour. centeredTreeId tracks which tree we
+  // last centred on so swapping tabs or first-paint kicks a re-centre, but
+  // upgrading nodes within the same tree doesn't snatch the camera back.
+  const centeredTreeId = useRef<string | null>(null);
+  const pendingCenter = useRef<(() => void) | null>(null);
+
+  // Pick the "where the player cares right now" node for a given tree.
+  //   1. Highest sortOrder among invested nodes (deepest progress) — proxies
+  //      "last node you put a point into" without needing a server timestamp.
+  //   2. Otherwise: lowest sortOrder in the tree (the entry point).
+  const targetNodeForTree = useCallback(
+    (treeId: string | null): SkillDef | null => {
+      if (!treeId) return null;
+      const inTree = visible.filter(d => d.treeId === treeId);
+      if (inTree.length === 0) return null;
+      const invested = inTree.filter(
+        d => (levelBySkill.get(d.skillId) ?? 0) > 0
+      );
+      if (invested.length > 0) {
+        return [...invested].sort((a, b) => b.sortOrder - a.sortOrder)[0];
+      }
+      return [...inTree].sort((a, b) => a.sortOrder - b.sortOrder)[0];
+    },
+    [visible, levelBySkill]
+  );
+
+  const centerOnNode = useCallback(
+    (def: SkillDef) => {
+      if (viewport.current.width === 0 || viewport.current.height === 0) return;
+      const pos = nodePosition(def);
+      const s = scaleOffset.current;
+      const wantX = viewport.current.width / 2 - (originX + pos.x) * s;
+      const wantY = viewport.current.height / 2 - (originY + pos.y) * s;
+      const cx = clampX(wantX, s);
+      const cy = clampY(wantY, s);
+      panOffset.current = { x: cx, y: cy };
+      pan.setValue(panOffset.current);
+    },
+    // clampX/clampY are stable, originX/originY change with visible set
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [originX, originY, canvasWidth, canvasHeight]
+  );
+
+  // Re-centre when the active tree changes (or first lands). Defers until the
+  // viewport has been measured if necessary.
+  useEffect(() => {
+    if (activeTreeId === centeredTreeId.current) return;
+    const target = targetNodeForTree(activeTreeId);
+    if (!target) return;
+    centeredTreeId.current = activeTreeId;
+    if (viewport.current.width === 0) {
+      pendingCenter.current = () => centerOnNode(target);
+      return;
+    }
+    centerOnNode(target);
+  }, [activeTreeId, targetNodeForTree, centerOnNode]);
 
   const composedGesture = useMemo(() => {
     const panGesture = Gesture.Pan()

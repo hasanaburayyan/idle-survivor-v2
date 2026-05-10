@@ -292,16 +292,21 @@ const cardDuelHandler: MinigameHandler = {
     }));
     const rewards: MinigameEndResult['rewards'] = [];
     if (players.length === 2) {
+      // Medicine: winner 2, loser 1.
       rewards.push({
         username: players[0].username,
         rewards: [
           { kind: 'xp', amount: 25n },
           { kind: 'scrap', amount: 25n },
+          { kind: 'item', resourceId: 'medicine', quantity: 2n },
         ],
       });
       rewards.push({
         username: players[1].username,
-        rewards: [{ kind: 'xp', amount: 10n }],
+        rewards: [
+          { kind: 'xp', amount: 10n },
+          { kind: 'item', resourceId: 'medicine', quantity: 1n },
+        ],
       });
     }
     return { placements, rewards };

@@ -936,8 +936,11 @@ const CLASS_POOL_SEEDS = [
 ];
 
 // Unlock nodes in the Intermediate tree.
-// Gated by stat totals: maxing both minor (4×1) and major (4×3) = 16 total stat.
-// prerequisiteStatId + prerequisiteStatValue express this gate in upgradeSkill.
+// Each is the third step on its corresponding stat-chain diagonal — Vigor →
+// NE corner becomes Brute, Power → SE → Striker, Focus → SW → Generalist,
+// Fortune → NW → Wanderer. The skill-prereq edge from `<stat>_major` lvl 4
+// puts them visually on the chain; the redundant stat gate (16) is kept as
+// a defensive check should stats ever come from outside skill nodes.
 interface UnlockNodeSeed {
   skillId: string;
   name: string;
@@ -945,48 +948,62 @@ interface UnlockNodeSeed {
   positionX: number;
   positionY: number;
   sortOrder: number;
+  prerequisiteSkillId: string;   // e.g. 'vigor_major'
+  prerequisiteLevel: number;     // 4 (max minor + major chain)
   prerequisiteStatId: string;
   prerequisiteStatValue: number;
 }
+
+// Pinned to the four corners of the stat-X. STEP_3 keeps these in sync with
+// the diagonal pitch used in skill_tree.ts (3rd step out from centre).
+const UNLOCK_STEP = 130 * 3;
 
 const UNLOCK_NODE_SEEDS: UnlockNodeSeed[] = [
   {
     skillId: 'unlock_brute',
     name: 'Unlock Brute',
     description: 'Reveals the Brute class tree. Spend Metal + Fabric to craft Brute points.',
-    positionX: 0,
-    positionY: 1600,
+    positionX: UNLOCK_STEP,
+    positionY: -UNLOCK_STEP, // NE corner — end of Vigor chain
     sortOrder: 200,
+    prerequisiteSkillId: 'vigor_major',
+    prerequisiteLevel: 4,
     prerequisiteStatId: 'vigor',
-    prerequisiteStatValue: 16,
-  },
-  {
-    skillId: 'unlock_generalist',
-    name: 'Unlock Generalist',
-    description: 'Reveals the Generalist class tree. Spend a little of every resource to craft Generalist points.',
-    positionX: 0,
-    positionY: 1800,
-    sortOrder: 201,
-    prerequisiteStatId: 'focus',
     prerequisiteStatValue: 16,
   },
   {
     skillId: 'unlock_striker',
     name: 'Unlock Striker',
     description: 'Reveals the Striker class tree. Spend Parts + Food to craft Striker points.',
-    positionX: 200,
-    positionY: 1600,
-    sortOrder: 202,
+    positionX: UNLOCK_STEP,
+    positionY: UNLOCK_STEP, // SE corner — end of Power chain
+    sortOrder: 201,
+    prerequisiteSkillId: 'power_major',
+    prerequisiteLevel: 4,
     prerequisiteStatId: 'power',
+    prerequisiteStatValue: 16,
+  },
+  {
+    skillId: 'unlock_generalist',
+    name: 'Unlock Generalist',
+    description: 'Reveals the Generalist class tree. Spend a little of every resource to craft Generalist points.',
+    positionX: -UNLOCK_STEP,
+    positionY: UNLOCK_STEP, // SW corner — end of Focus chain
+    sortOrder: 202,
+    prerequisiteSkillId: 'focus_major',
+    prerequisiteLevel: 4,
+    prerequisiteStatId: 'focus',
     prerequisiteStatValue: 16,
   },
   {
     skillId: 'unlock_wanderer',
     name: 'Unlock Wanderer',
     description: 'Reveals the Wanderer class tree. Spend Medicine + Scrap to craft Wanderer points.',
-    positionX: -200,
-    positionY: 1600,
+    positionX: -UNLOCK_STEP,
+    positionY: -UNLOCK_STEP, // NW corner — end of Fortune chain
     sortOrder: 203,
+    prerequisiteSkillId: 'fortune_major',
+    prerequisiteLevel: 4,
     prerequisiteStatId: 'fortune',
     prerequisiteStatValue: 16,
   },
@@ -1005,32 +1022,37 @@ interface CraftCostSeed {
 function buildCraftCostSeeds(): CraftCostSeed[] {
   const seeds: CraftCostSeed[] = [];
 
-  // Brute: Metal + Fabric, tier-0 base 50 each
-  const bruteBase: [string, bigint][] = [['metal', 50n], ['fabric', 50n]];
+  // Non-scrap costs cut 5x from the original click-economy values to match the
+  // new structure-based income (Refinery ~120 parts/hr, Smelter ~60 metal/hr,
+  // Workbench fabric gated upstream, Garden multiplies food, minigame meds).
+  // Scrap cost on Wanderer left untouched — Scavenge income is unchanged.
+
+  // Brute: Metal + Fabric, tier-0 base 10 each
+  const bruteBase: [string, bigint][] = [['metal', 10n], ['fabric', 10n]];
   for (const [resourceId, base] of bruteBase) {
     seeds.push({ classId: 'brute', tierIndex: 0, pointsInTier: 10, resourceId, amountPerPoint: base });
     seeds.push({ classId: 'brute', tierIndex: 1, pointsInTier: 10, resourceId, amountPerPoint: base * 10n });
     seeds.push({ classId: 'brute', tierIndex: 2, pointsInTier: U32_MAX, resourceId, amountPerPoint: base * 100n });
   }
 
-  // Generalist: 10 of each of all 6 resources
+  // Generalist: 2 of each of all 6 resources
   const generalistResources: string[] = ['scrap', 'parts', 'metal', 'fabric', 'food', 'medicine'];
   for (const resourceId of generalistResources) {
-    seeds.push({ classId: 'generalist', tierIndex: 0, pointsInTier: 10, resourceId, amountPerPoint: 10n });
-    seeds.push({ classId: 'generalist', tierIndex: 1, pointsInTier: 10, resourceId, amountPerPoint: 100n });
-    seeds.push({ classId: 'generalist', tierIndex: 2, pointsInTier: U32_MAX, resourceId, amountPerPoint: 1000n });
+    seeds.push({ classId: 'generalist', tierIndex: 0, pointsInTier: 10, resourceId, amountPerPoint: 2n });
+    seeds.push({ classId: 'generalist', tierIndex: 1, pointsInTier: 10, resourceId, amountPerPoint: 20n });
+    seeds.push({ classId: 'generalist', tierIndex: 2, pointsInTier: U32_MAX, resourceId, amountPerPoint: 200n });
   }
 
-  // Striker: Parts + Food, tier-0 base 50 each
-  const strikerBase: [string, bigint][] = [['parts', 50n], ['food', 50n]];
+  // Striker: Parts + Food, tier-0 base 10 each
+  const strikerBase: [string, bigint][] = [['parts', 10n], ['food', 10n]];
   for (const [resourceId, base] of strikerBase) {
     seeds.push({ classId: 'striker', tierIndex: 0, pointsInTier: 10, resourceId, amountPerPoint: base });
     seeds.push({ classId: 'striker', tierIndex: 1, pointsInTier: 10, resourceId, amountPerPoint: base * 10n });
     seeds.push({ classId: 'striker', tierIndex: 2, pointsInTier: U32_MAX, resourceId, amountPerPoint: base * 100n });
   }
 
-  // Wanderer: Medicine (50) + Scrap (250)
-  const wandererBase: [string, bigint][] = [['medicine', 50n], ['scrap', 250n]];
+  // Wanderer: Medicine (10, cut from 50) + Scrap (250, unchanged)
+  const wandererBase: [string, bigint][] = [['medicine', 10n], ['scrap', 250n]];
   for (const [resourceId, base] of wandererBase) {
     seeds.push({ classId: 'wanderer', tierIndex: 0, pointsInTier: 10, resourceId, amountPerPoint: base });
     seeds.push({ classId: 'wanderer', tierIndex: 1, pointsInTier: 10, resourceId, amountPerPoint: base * 10n });
@@ -1863,51 +1885,60 @@ export function seedClassSystem(ctx: any): void {
     }
   }
 
-  // 3. Unlock_<class> skill nodes in the Intermediate tree
+  // 3. Unlock_<class> skill nodes in the Intermediate tree. Upsert so layout
+  // tweaks (positionX/Y, copy edits) land via runSeedMigration.
   for (const seed of UNLOCK_NODE_SEEDS) {
-    if (ctx.db.skillDefinition.skillId.find(seed.skillId) === null) {
-      ctx.db.skillDefinition.insert({
-        skillId: seed.skillId,
-        name: seed.name,
-        description: seed.description,
-        maxLevel: 1,
-        prerequisiteSkillId: '',
-        prerequisiteLevel: 0,
-        prerequisitePlayerLevel: 0,
-        costSkillPoints: 1,
-        positionX: seed.positionX,
-        positionY: seed.positionY,
-        sortOrder: seed.sortOrder,
-        treeId: 'intermediate',
-        capstoneBranchId: '',
-        infiniteScaling: false,
-        prerequisiteStatId: seed.prerequisiteStatId,
-        prerequisiteStatValue: seed.prerequisiteStatValue,
-      });
+    const existing = ctx.db.skillDefinition.skillId.find(seed.skillId);
+    const row = {
+      skillId: seed.skillId,
+      name: seed.name,
+      description: seed.description,
+      maxLevel: 1,
+      prerequisiteSkillId: seed.prerequisiteSkillId,
+      prerequisiteLevel: seed.prerequisiteLevel,
+      prerequisitePlayerLevel: 0,
+      costSkillPoints: 1,
+      positionX: seed.positionX,
+      positionY: seed.positionY,
+      sortOrder: seed.sortOrder,
+      treeId: 'intermediate',
+      capstoneBranchId: '',
+      infiniteScaling: false,
+      prerequisiteStatId: seed.prerequisiteStatId,
+      prerequisiteStatValue: seed.prerequisiteStatValue,
+    };
+    if (existing === null) {
+      ctx.db.skillDefinition.insert(row);
+    } else {
+      ctx.db.skillDefinition.skillId.update({ ...existing, ...row });
     }
   }
 
-  // 4. Class tree node definitions (skill_definition rows for each class tree node)
+  // 4. Class tree node definitions. Upsert (same reason as step 3).
   for (const seed of ALL_CLASS_NODE_SEEDS) {
-    if (ctx.db.skillDefinition.skillId.find(seed.skillId) === null) {
-      ctx.db.skillDefinition.insert({
-        skillId: seed.skillId,
-        name: seed.name,
-        description: seed.description,
-        maxLevel: seed.maxLevel,
-        prerequisiteSkillId: seed.prerequisiteSkillId,
-        prerequisiteLevel: seed.prerequisiteLevel,
-        prerequisitePlayerLevel: 0,
-        costSkillPoints: seed.costSkillPoints,
-        positionX: seed.positionX,
-        positionY: seed.positionY,
-        sortOrder: seed.sortOrder,
-        treeId: seed.treeId,
-        capstoneBranchId: seed.capstoneBranchId,
-        infiniteScaling: seed.infiniteScaling,
-        prerequisiteStatId: seed.prerequisiteStatId,
-        prerequisiteStatValue: seed.prerequisiteStatValue,
-      });
+    const existing = ctx.db.skillDefinition.skillId.find(seed.skillId);
+    const row = {
+      skillId: seed.skillId,
+      name: seed.name,
+      description: seed.description,
+      maxLevel: seed.maxLevel,
+      prerequisiteSkillId: seed.prerequisiteSkillId,
+      prerequisiteLevel: seed.prerequisiteLevel,
+      prerequisitePlayerLevel: 0,
+      costSkillPoints: seed.costSkillPoints,
+      positionX: seed.positionX,
+      positionY: seed.positionY,
+      sortOrder: seed.sortOrder,
+      treeId: seed.treeId,
+      capstoneBranchId: seed.capstoneBranchId,
+      infiniteScaling: seed.infiniteScaling,
+      prerequisiteStatId: seed.prerequisiteStatId,
+      prerequisiteStatValue: seed.prerequisiteStatValue,
+    };
+    if (existing === null) {
+      ctx.db.skillDefinition.insert(row);
+    } else {
+      ctx.db.skillDefinition.skillId.update({ ...existing, ...row });
     }
   }
 
@@ -1932,23 +1963,32 @@ export function seedClassSystem(ctx: any): void {
     }
   }
 
-  // 6. Class craft cost rows
+  // 6. Class craft cost rows. Upsert so rebalances to amountPerPoint /
+  // pointsInTier land via runSeedMigration without a clear-database publish.
   for (const seed of CRAFT_COST_SEEDS) {
-    // Idempotent check: look for an existing row with same (classId, tierIndex, resourceId)
-    let exists = false;
+    let existing = null;
     for (const row of ctx.db.classCraftCost.class_craft_cost_class_id.filter(seed.classId)) {
       if (row.tierIndex === seed.tierIndex && row.resourceId === seed.resourceId) {
-        exists = true;
+        existing = row;
         break;
       }
     }
-    if (!exists) {
+    if (existing === null) {
       ctx.db.classCraftCost.insert({
         id: 0n,
         classId: seed.classId,
         tierIndex: seed.tierIndex,
         pointsInTier: seed.pointsInTier,
         resourceId: seed.resourceId,
+        amountPerPoint: seed.amountPerPoint,
+      });
+    } else if (
+      existing.pointsInTier !== seed.pointsInTier ||
+      existing.amountPerPoint !== seed.amountPerPoint
+    ) {
+      ctx.db.classCraftCost.id.update({
+        ...existing,
+        pointsInTier: seed.pointsInTier,
         amountPerPoint: seed.amountPerPoint,
       });
     }
